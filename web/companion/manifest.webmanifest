@@ -1,0 +1,12 @@
+{
+  "name": "ES8 Companion",
+  "short_name": "Companion",
+  "description": "Plays a setlist on a BOSS ES-8 during the show.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#0f100d",
+  "theme_color": "#0f100d",
+  "icons": [{"src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any"}]
+}

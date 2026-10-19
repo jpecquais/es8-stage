@@ -1,0 +1,180 @@
+// ES8 Companion — logique pure (sans DOM ni MIDI), testée sous Node.
+// Spéc : docs/companion.md. Le show (`es8ctl.show/1`) est calculé par la
+// lib Python ; ici on ne fait que le parcourir : la position est
+// { setlist, step }, et le pas i se joue en envoyant le PC i.
+
+export const SCHEMA = "es8ctl.show/1";
+
+export const ACTIONS = [
+  { id: "next", label: "Next" },
+  { id: "prev", label: "Previous" },
+  { id: "next_song", label: "Next song" },
+  { id: "prev_song", label: "Previous song" },
+  { id: "song_start", label: "Song start" },
+];
+export const actionLabel = (id) => (ACTIONS.find((a) => a.id === id) || { label: id }).label;
+
+// Sans Bank Select (test H2), seule la banque MIDI 0 de la pc_map se joue.
+export const PLAYABLE_MIDI_BANKS = [0];
+
+// ---------------------------------------------------------------- le show
+
+/** Vérification légère d'un show chargé : liste des problèmes (vide = utilisable). */
+export function checkShow(doc) {
+  const problems = [];
+  if (!doc || typeof doc !== "object") return ["Not a JSON object."];
+  if (doc.schema !== SCHEMA) problems.push(`"schema" must be "${SCHEMA}".`);
+  if (!Array.isArray(doc.setlists) || !doc.setlists.length) problems.push('"setlists": expected at least one setlist.');
+  const rigs = doc.rigs || {};
+  (doc.setlists || []).forEach((sl, k) => {
+    const at = `setlists[${k}]`;
+    if (!Array.isArray(sl.songs) || !Array.isArray(sl.steps) || !sl.steps.length) {
+      problems.push(`${at}: expected "songs" and at least one step.`);
+      return;
+    }
+    if (sl.steps.length > 128) problems.push(`${at}: ${sl.steps.length} steps, 128 at most.`);
+    sl.steps.forEach((st, i) => {
+      if (!sl.songs[st.song]) problems.push(`${at}.steps[${i}]: unknown song ${st.song}.`);
+    });
+    sl.songs.forEach((sg, s) => {
+      if (!rigs[sg.rig]) problems.push(`${at}.songs[${s}]: unknown rig ${JSON.stringify(sg.rig)}.`);
+    });
+  });
+  return problems;
+}
+
+export const isPlayable = (setlist) => PLAYABLE_MIDI_BANKS.includes(setlist.midi_bank);
+
+/** Première setlist jouable, à son premier pas. */
+export function startPosition(show) {
+  const k = show.setlists.findIndex(isPlayable);
+  return { setlist: Math.max(0, k), step: 0 };
+}
+
+/** Position encore valable pour ce show, sinon le départ. */
+export function validPosition(show, pos) {
+  const sl = pos && show.setlists[pos.setlist];
+  if (sl && isPlayable(sl) && Number.isInteger(pos.step) && pos.step >= 0 && pos.step < sl.steps.length) return pos;
+  return startPosition(show);
+}
+
+/** Tout ce que l'écran affiche pour une position. */
+export function view(show, pos) {
+  const sl = show.setlists[pos.setlist];
+  const step = sl.steps[pos.step];
+  const song = sl.songs[step.song];
+  const posInSong = pos.step - song.first_step;
+  const at = (i) => (i >= 0 && i < sl.steps.length ? { index: i, ...sl.steps[i] } : null);
+  const prev = at(pos.step - 1);
+  const next = at(pos.step + 1);
+  const nextSong = sl.songs[step.song + 1] || null;
+  return {
+    setlist: sl,
+    step: { index: pos.step, ...step },
+    song,
+    songIndex: step.song,
+    posInSong,
+    rig: show.rigs[song.rig],
+    strip: sl.steps.slice(song.first_step, song.first_step + song.steps).map((st, j) => ({
+      index: song.first_step + j,
+      snapshot: st.snapshot,
+      state: j < posInSong ? "done" : j === posInSong ? "current" : j === posInSong + 1 ? "next" : "later",
+    })),
+    prev,
+    next,
+    nextIsNewSong: !!next && next.song !== step.song,
+    nextSong,
+  };
+}
+
+/** Position après une action, ou null s'il n'y a rien à faire (bout de la setlist). */
+export function move(show, pos, action) {
+  const sl = show.setlists[pos.setlist];
+  const songIndex = sl.steps[pos.step].song;
+  let step;
+  if (action === "next") step = pos.step + 1;
+  else if (action === "prev") step = pos.step - 1;
+  else if (action === "next_song") step = sl.songs[songIndex + 1] ? sl.songs[songIndex + 1].first_step : -1;
+  else if (action === "prev_song") step = songIndex > 0 ? sl.songs[songIndex - 1].first_step : -1;
+  else if (action === "song_start") step = sl.songs[songIndex].first_step;
+  else return null;
+  if (step < 0 || step >= sl.steps.length || step === pos.step) return null;
+  return { setlist: pos.setlist, step };
+}
+
+/** Aller au premier pas d'un morceau, ou à un pas donné. */
+export const goToSong = (show, setlist, song) => ({ setlist, step: show.setlists[setlist].songs[song].first_step });
+
+// ---------------------------------------------------------------- MIDI
+
+/** Program Change du pas, sur le canal de réception de l'ES-8 (1–16). */
+export const programChange = (channel, step) => [0xc0 | ((channel - 1) & 0x0f), step & 0x7f];
+
+/**
+ * Message MIDI reçu → événement d'entrée, ou null s'il n'en est pas un.
+ * Les PC ne sont jamais des entrées : ce sont ceux que la Companion envoie
+ * (écho d'un ES-8 en Thru). Horloge, active sensing et SysEx sont ignorés.
+ */
+export function eventFromMidi(data) {
+  if (!data || data.length < 3) return null;
+  const kind = data[0] & 0xf0;
+  const channel = (data[0] & 0x0f) + 1;
+  if (kind === 0xb0) return { type: "cc", channel, number: data[1], press: data[2] > 0 };
+  if (kind === 0x90) return { type: "note", channel, number: data[1], press: data[2] > 0 };
+  if (kind === 0x80) return { type: "note", channel, number: data[1], press: false };
+  return null;
+}
+
+export const eventFromKey = (key) => ({ type: "key", key, press: true });
+
+export const sameMessage = (a, b) =>
+  a.type === b.type && (a.type === "key" ? a.key === b.key : a.channel === b.channel && a.number === b.number);
+
+/** Action liée à un événement, seulement à l'appui. */
+export function actionFor(bindings, event) {
+  if (!event || !event.press) return null;
+  const hit = bindings.find((b) => sameMessage(b, event));
+  return hit ? hit.action : null;
+}
+
+/** Apprentissage : le message rejoint l'action et quitte toute autre action. */
+export function learn(bindings, action, event) {
+  const message = event.type === "key"
+    ? { type: "key", key: event.key }
+    : { type: event.type, channel: event.channel, number: event.number };
+  return [...bindings.filter((b) => !sameMessage(b, message)), { action, ...message }];
+}
+
+export const clearAction = (bindings, action) => bindings.filter((b) => b.action !== action);
+
+export function describeBinding(b) {
+  if (b.type === "key") return `Key ${KEY_NAMES[b.key] || b.key}`;
+  return `${b.type === "cc" ? "CC" : "Note"} ${b.number} · ch ${b.channel}`;
+}
+const KEY_NAMES = { ArrowRight: "→", ArrowLeft: "←", ArrowUp: "↑", ArrowDown: "↓", PageDown: "Page Down", PageUp: "Page Up", " ": "Space" };
+
+// Pédales tourne-page : elles envoient le plus souvent ces touches.
+export const DEFAULT_KEY_BINDINGS = [
+  { action: "next", type: "key", key: "ArrowRight" },
+  { action: "next", type: "key", key: "PageDown" },
+  { action: "prev", type: "key", key: "ArrowLeft" },
+  { action: "prev", type: "key", key: "PageUp" },
+];
+
+/** Table de départ : le préréglage du show (s'il y en a un) et les touches usuelles. */
+export function presetBindings(show) {
+  const preset = ((show && show.input_preset && show.input_preset.bindings) || [])
+    .filter((b) => ACTIONS.some((a) => a.id === b.action) && (b.type === "cc" || b.type === "note"))
+    .map((b) => ({ action: b.action, type: b.type, channel: b.channel, number: b.number }));
+  return [...preset, ...DEFAULT_KEY_BINDINGS];
+}
+
+/** Anti-rebond : un même message reçu deux fois en moins de `ms` ne compte qu'une fois. */
+export function makeDebounce(ms = 120) {
+  let last = null;
+  return (event, now) => {
+    if (last && sameMessage(last.event, event) && now - last.at < ms) return false;
+    last = { event, at: now };
+    return true;
+  };
+}

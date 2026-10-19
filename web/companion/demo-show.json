@@ -1,0 +1,108 @@
+{
+  "schema": "es8ctl.show/1",
+  "exported": "2026-10-19T12:00:00Z",
+  "demo": true,
+  "es8": {"rx_channel": 1},
+  "setlists": [
+    {
+      "id": "november",
+      "name": "November show",
+      "midi_bank": 0,
+      "pc_map": "demo",
+      "songs": [
+        {"name": "Opening", "rig": "ambient", "first_step": 0, "steps": 2},
+        {"name": "White Night", "rig": "crunch", "first_step": 2, "steps": 6},
+        {"name": "Homecoming", "rig": "ambient", "first_step": 8, "steps": 3},
+        {"name": "Finale", "rig": "crunch", "first_step": 11, "steps": 2}
+      ],
+      "steps": [
+        {"song": 0, "snapshot": "Intro", "patch": 88, "label": "11-1"},
+        {"song": 0, "snapshot": "Swell", "patch": 89, "label": "11-2"},
+        {"song": 1, "snapshot": "Verse", "patch": 96, "label": "12-1"},
+        {"song": 1, "snapshot": "Chorus", "patch": 97, "label": "12-2"},
+        {"song": 1, "snapshot": "Verse", "patch": 96, "label": "12-1"},
+        {"song": 1, "snapshot": "Chorus", "patch": 97, "label": "12-2"},
+        {"song": 1, "snapshot": "Bridge", "patch": 98, "label": "12-3"},
+        {"song": 1, "snapshot": "Chorus", "patch": 97, "label": "12-2"},
+        {"song": 2, "snapshot": "Intro", "patch": 88, "label": "11-1"},
+        {"song": 2, "snapshot": "Swell", "patch": 89, "label": "11-2"},
+        {"song": 2, "snapshot": "Pad", "patch": 90, "label": "11-3"},
+        {"song": 3, "snapshot": "Solo", "patch": 99, "label": "12-4"},
+        {"song": 3, "snapshot": "Chorus", "patch": 97, "label": "12-2"}
+      ]
+    },
+    {
+      "id": "rehearsal",
+      "name": "Rehearsal",
+      "midi_bank": 1,
+      "pc_map": "demo",
+      "songs": [
+        {"name": "White Night", "rig": "crunch", "first_step": 0, "steps": 4},
+        {"name": "Homecoming", "rig": "ambient", "first_step": 4, "steps": 2}
+      ],
+      "steps": [
+        {"song": 0, "snapshot": "Verse", "patch": 96, "label": "12-1"},
+        {"song": 0, "snapshot": "Chorus", "patch": 97, "label": "12-2"},
+        {"song": 0, "snapshot": "Bridge", "patch": 98, "label": "12-3"},
+        {"song": 0, "snapshot": "Chorus", "patch": 97, "label": "12-2"},
+        {"song": 1, "snapshot": "Intro", "patch": 88, "label": "11-1"},
+        {"song": 1, "snapshot": "Pad", "patch": 90, "label": "11-3"}
+      ]
+    }
+  ],
+  "rigs": {
+    "ambient": {
+      "name": "Ambient",
+      "bank": 11,
+      "snapshots": ["Intro", "Swell", "Pad"],
+      "surface": {
+        "name": "Ambient 4",
+        "switches": {
+          "NUM1": {"label": "Delay", "role": "loop", "target": "L8"},
+          "NUM2": {"label": "Mod", "role": "loop", "target": "L5"},
+          "NUM4": {"label": "Freeze", "role": "param", "mode": "momentary", "target": "Reverb pedal · Freeze"},
+          "NUM8": {"label": "Tap", "role": "tap"}
+        }
+      },
+      "chain": [{"loop": "L5", "device": "Modulation"}, {"loop": "L8", "device": "Delay pedal"}],
+      "programs": [
+        {"device": "DAW", "program": "Ambient Pad", "pc": 20},
+        {"device": "Reverb pedal", "program": "Long Hall", "pc": 5}
+      ]
+    },
+    "crunch": {
+      "name": "Crunch Lead",
+      "bank": 12,
+      "snapshots": ["Verse", "Chorus", "Bridge", "Solo"],
+      "surface": {
+        "name": "Lead 4 + 4",
+        "switches": {
+          "NUM1": {"label": "Drive", "role": "param", "mode": "toggle", "target": "DAW · Drive"},
+          "NUM2": {"label": "Delay", "role": "param", "mode": "toggle", "target": "DAW · Delay"},
+          "NUM3": {"label": "Mod", "role": "loop", "target": "L5"},
+          "NUM4": {"label": "Freeze", "role": "param", "mode": "momentary", "target": "Reverb pedal · Freeze"},
+          "NUM5": {"label": "Overdrive", "role": "loop", "target": "L2"},
+          "NUM6": {"label": "Fuzz", "role": "loop", "target": "L7"},
+          "NUM7": {"label": "Mute", "role": "es8", "target": "MUTE"},
+          "NUM8": {"label": "Tap", "role": "tap"}
+        }
+      },
+      "chain": [
+        {"loop": "L2", "device": "Overdrive"},
+        {"loop": "L5", "device": "Modulation"},
+        {"loop": "L7", "device": "Fuzz"}
+      ],
+      "programs": [
+        {"device": "DAW", "program": "Crunch Lead", "pc": 12},
+        {"device": "Reverb pedal", "program": "Long Hall", "pc": 5}
+      ]
+    }
+  },
+  "input_preset": {
+    "source": "surface Lead 4 + 4",
+    "bindings": [
+      {"action": "next", "type": "cc", "channel": 16, "number": 80},
+      {"action": "prev", "type": "cc", "channel": 16, "number": 81}
+    ]
+  }
+}
