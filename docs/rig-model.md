@@ -5,7 +5,8 @@ matériel, puis des rigs et leurs snapshots, et un compilateur produit le même
 format de changements que `transform` (`{patches, system}`), consommé par
 `apply` (CLI) ou `_accept` (web). Aucun nouveau chemin vers l'ES-8.
 
-Statut : proposition (2026-10-18), rien n'est codé. Maquette d'interface :
+Statut : proposition (2026-10-18, setlist ajoutée le 2026-10-19), rien n'est
+codé. Code prévu dans `packages/core/src/es8core/model/`. Maquette d'interface :
 https://claude.ai/artifact/2GHaQenYoy9vhSk1RPRMrZ
 
 ## Vocabulaire
@@ -17,7 +18,7 @@ https://claude.ai/artifact/2GHaQenYoy9vhSk1RPRMrZ
 | **Snapshot** | Un état du rig : loops actives, valeurs des paramètres MIDI | un patch |
 | **Surface** | Le rôle de chaque switch, partageable entre rigs | assigns, `ctl_func`, `manual_number` |
 | **Destination** | Un appareil MIDI du pedalboard (Live n'en est qu'un) | slots MIDI des patchs |
-| **Setlist** (plus tard) | Liste ordonnée de rigs, avec snapshot de départ | aucun stockage |
+| **Setlist** | Déroulé d'un concert : suite de pas (rig + snapshot), répétitions comprises | une banque MIDI de la `pc_map` (système) |
 
 Décisions actées :
 
@@ -126,12 +127,32 @@ mode manuel ; en mode patch, NUM1–8 rappellent les snapshots.
 
 ### `setup.json`
 
-Associe les banques aux rigs (et plus tard les setlists) :
+Associe les banques aux rigs et les banques MIDI de la `pc_map` aux setlists :
 
 ```json
 {"schema": "es8ctl.setup/1", "pedalboard": "pedalboard.json",
- "rigs": {"12": "rigs/crunch-lead.json", "11": "rigs/ambient.json"}}
+ "rigs": {"12": "rigs/crunch-lead.json", "11": "rigs/ambient.json"},
+ "setlists": {"0": "setlists/concert-novembre.json"}}
 ```
+
+### `setlists/<nom>.json`
+
+```json
+{
+  "schema": "es8ctl.setlist/1",
+  "name": "Concert novembre",
+  "songs": [
+    {"rig": "../rigs/ambient.json", "sequence": ["Intro"]},
+    {"rig": "../rigs/crunch-lead.json",
+     "sequence": ["Verse", "Chorus", "Verse", "Chorus", "Bridge", "Chorus"]}
+  ]
+}
+```
+
+- `sequence` : noms de snapshots du rig, dans l'ordre joué. Les répétitions
+  sont des pas de plus, jamais des patchs de plus.
+- La setlist ne stocke aucun patch : elle référence des rigs déjà placés
+  dans une banque par `setup.json`.
 
 ## Compilation
 
@@ -156,6 +177,30 @@ canal, sans PC) 2 CC chacun.
 Le compilateur rend aussi la liste des champs qu'il possède (`owns`) : badges
 dans l'éditeur classique et détection de divergence.
 
+### Setlist → `pc_map`
+
+`compile_setlist(setup, setlist, dump) -> changes` : même principe, ne touche
+que le système. Les pas sont mis à plat (chanson après chanson) ; le pas *i*
+devient l'entrée *i* de la banque MIDI de la setlist :
+
+| Source | Champ écrit |
+|---|---|
+| pas *i* = (rig, snapshot) | `pc_map_bank<b>_pc[i]` = numéro du patch du snapshot (0–799) |
+| entrées au-delà du dernier pas | numéro du patch du dernier pas (un « suivant » de trop ne sort pas du concert) |
+
+- Navigation : n'importe quelle source de PC sur le canal de réception de
+  l'ES-8 (EV-1-WL ou ses footswitches via le WIDI, Live, module Pico, iPad).
+  PC *i* → pas *i*. Les répétitions (Verse, Chorus, Verse…) coûtent une
+  entrée de 10 bits, aucun patch.
+- Une banque MIDI = une setlist : 7 setlists de 128 pas au plus, choisies
+  par Bank Select. Sans Bank Select (à tester), une seule setlist active en
+  banque 0, réécrite pour changer de concert (quelques pages système).
+- Les NUMx de l'ES-8 restent libres en mode patch : on peut sauter à un
+  snapshot hors déroulé. Un contrôleur qui compte ses PC (PC +1 / −1) ne le
+  voit pas et reprend à son propre compteur ; seul un contrôleur qui écoute
+  l'ES-8 (Pico, iPad) peut se recaler.
+- `owns` : les entrées `pc_map` de la banque de la setlist.
+
 ### Vérifications (refus avant toute écriture)
 
 - 8 snapshots au plus ; noms ≤ 16 caractères.
@@ -164,6 +209,9 @@ dans l'éditeur classique et détection de divergence.
 - Paramètres et programmes existants ; canaux distincts entre appareils.
 - Champs système : deux surfaces en usage ne peuvent pas donner deux valeurs
   au même `manual_number`.
+- Setlist : 128 pas au plus ; chaque rig référencé est placé dans une banque
+  par `setup.json` ; chaque snapshot de `sequence` existe dans son rig ; une
+  banque MIDI par setlist.
 
 Avertissements (sans refus) : appareil `repeated_pc: reloads` ou `unknown`,
 loop câblée inutilisée, slot de snapshot vide.
@@ -184,9 +232,9 @@ Deux apps, un moteur :
 
 ```
 web/
-  shared/   engine.js (Pyodide, Web MIDI, lecture, écriture vérifiée), styles de base
-  editor/   l'éditeur classique actuel (champ par champ)
-  rigs/     Pedalboard, Rig, Surface, Écriture et moniteur
+  shared/   engine.js (Pyodide, Web MIDI, lecture, écriture vérifiée), chain.js, describe.js
+  control/  ES8 Control, l'éditeur classique (champ par champ)
+  <rigs>/   Pedalboard, Rig, Surface, Setlist, Écriture et moniteur (nom à fixer)
 ```
 
 - Toute la logique reste dans la lib Python (`compile_rig`, `_accept`,
@@ -208,3 +256,12 @@ web/
 4. Encodage de `midi_pc` (0 = rien envoyé ?) et de `manual_number` (0–9).
 5. Le canal d'écoute de la source d'assign `CC` est-il le canal de réception
    système ? (utile seulement pour un retour visuel piloté de l'extérieur)
+
+Pour la setlist :
+
+6. L'ES-8 applique-t-il le Bank Select (CC0, et/ou CC32) pour choisir la
+   banque MIDI de la `pc_map` ? Sinon : une seule setlist active (banque 0).
+7. L'ES-8 suit-il un PC reçu en mode manuel, ou seulement en mode patch ?
+8. `MEM_U` / `MEM_D` passent-ils d'une banque à la suivante ?
+9. L'EV-1-WL sait-elle envoyer PC +1 / −1 sur ses footswitches (Tone Studio) ?
+10. Le WIDI Jack accepte-t-il la WL et l'ordinateur (ou un iPad) en même temps ?
