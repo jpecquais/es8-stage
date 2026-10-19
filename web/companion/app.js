@@ -189,8 +189,17 @@ function App() {
   async function loadDemo() {
     try { loadShow(await (await fetch("demo-show.json")).json(), "Demo show"); } catch { setError("The demo show could not be loaded."); }
   }
-  // « ?demo » dans l'adresse : ouvre directement le show de démo (essai, captures).
-  useEffect(() => { if (!show && new URLSearchParams(location.search).has("demo")) loadDemo(); }, []);
+  // « ?demo » dans l'adresse : ouvre directement le show de démo (essai, captures) ;
+  // « &view=songs|setlists|settings » ouvre aussi un écran.
+  useEffect(() => {
+    const q = new URLSearchParams(location.search);
+    const opened = !show && q.has("demo") ? loadDemo() : Promise.resolve();
+    const v = q.get("view");
+    opened.then(() => {
+      if (v === "songs") setSongsOpen(true);
+      else if (v === "setlists" || v === "settings") setScreen(v);
+    });
+  }, []);
 
   // Show déposé par ES8 Designer dans ce navigateur (même origine) : pris au démarrage ou à l'arrivée.
   useEffect(() => {
@@ -431,7 +440,7 @@ function Settings(ctx) {
         <section class="box">
           <h2 class="eyebrow">Show</h2>
           ${show ? html`<p>${show.setlists.map((s) => s.name).join(" · ")}${show.demo ? " (demo)" : ""}</p>
-              <p class="muted small">Exported ${show.exported || "?"} · ${show.setlists.length} setlist(s)</p>`
+              <p class="muted small">Exported ${show.exported ? new Date(show.exported).toLocaleString([], { dateStyle: "medium", timeStyle: "short" }) : "?"} · ${show.setlists.length} setlist(s)</p>`
             : html`<p class="muted">No show loaded.</p>`}
           <div class="row-wrap">
             <button class="primary" onClick=${() => fileInput.current.click()}>Load a show file…</button>
