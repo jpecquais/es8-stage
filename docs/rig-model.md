@@ -15,7 +15,7 @@ https://claude.ai/artifact/2GHaQenYoy9vhSk1RPRMrZ
 | Terme | Ce que c'est | Sur l'ES-8 |
 |---|---|---|
 | **Pedalboard** | Le matériel branché : pédales dans les loops, sorties CTL, entrées, appareils MIDI | rien (fichier seulement) |
-| **Rig** | Une configuration jouable : ordre des loops, programme chargé sur chaque appareil, surface | une banque (8 patchs) |
+| **Rig** | Une configuration jouable : ordre des loops, programme chargé sur chaque appareil, surface | des patchs consécutifs, un par snapshot |
 | **Snapshot** | Un état du rig : loops actives, valeurs des paramètres MIDI | un patch |
 | **Surface** | Le rôle de chaque switch, partageable entre rigs | assigns, `ctl_func`, `manual_number` |
 | **Destination** | Un appareil MIDI du pedalboard (un DAW n'en est qu'un) | slots MIDI des patchs |
@@ -24,16 +24,21 @@ https://claude.ai/artifact/2GHaQenYoy9vhSk1RPRMrZ
 
 Décisions actées :
 
-- Un rig = une banque, 8 snapshots au plus. Pas de rig sur deux banques en v1.
+- ~~Un rig = une banque, 8 snapshots au plus.~~ Remplacé le 2026-10-19 :
+  N snapshots sur des patchs consécutifs (section suivante).
 - Le flux va dans un sens : l'ES-8 détient l'état et pilote les destinations.
   Un changement venu d'une destination (souris dans le DAW) n'est pas renvoyé.
 - Un rig, c'est une partie locale (loops, surface) et une partie distante
   (les PC qui chargent le bon programme sur chaque appareil). Les PC du rig
-  sont recopiés dans les 8 snapshots : rappeler un snapshot depuis un autre
+  sont recopiés dans tous ses snapshots : rappeler un snapshot depuis un autre
   rig doit charger les bons programmes.
 - Les fichiers sont la vérité ; l'ES-8 est le résultat compilé.
 
 ## Évolution décidée le 2026-10-19 : rigs de N snapshots (`es8ctl.rig/2`)
+
+Implémentée le 2026-10-19 (modèle, Designer, show de la Companion). Le
+Designer convertit ses rigs v1 en v2 à l'ouverture (`start` = premier patch
+de l'ancienne banque).
 
 Constat à l'usage : « un rig = une banque » force à penser en banques. Un
 répertoire (spectacle, cover band) partage une chaîne et une surface sur
@@ -50,7 +55,7 @@ pointe n'importe quel patch (vérifié sur l'appareil, L1).
   appareil (`programs` du snapshot ; `null` = aucun PC pour cet appareil).
 - **Programme = alias ou numéro.** Partout où un programme est attendu :
   un nom défini dans le pedalboard (alias, facultatif), ou directement un
-  numéro (`12`), ou `{"pc": 12, "msb": 0, "lsb": 3}` selon
+  numéro (`12`), ou `{"pc": 12, "bank_msb": 0, "bank_lsb": 3}` selon
   `program_change`. Les alias servent seulement à l'affichage.
 - **Presets uniques, rangement serré.** Chaque snapshot occupe un patch,
   une fois ; les répétitions restent des pas de la `pc_map`. Un rig occupe
@@ -149,20 +154,28 @@ mode manuel ; en mode patch, NUM1–8 rappellent les snapshots.
 
 ```json
 {
-  "schema": "es8ctl.rig/1",
+  "schema": "es8ctl.rig/2",
   "name": "Crunch Lead",
   "short": "Crunch",
-  "bank": 12,
+  "start": "12-1",
   "pedalboard": "../pedalboard.json",
   "surface": "../surfaces/lead.json",
   "chain": ["L2", "L5", "L7"],
-  "programs": {"daw": "crunch", "reverb": "hall"},
+  "programs": {"daw": "crunch", "reverb": 5},
   "snapshots": [
     {"name": "Intro", "loops": ["L5"], "params": {"daw.delay": "on"}},
-    {"name": "Chorus", "loops": ["L2", "L5"], "params": {"daw.drive": "on", "daw.delay": "on"}}
+    {"name": "Chorus", "loops": ["L2", "L5"], "params": {"daw.drive": "on", "daw.delay": "on"}},
+    {"name": "Solo", "loops": ["L2"], "programs": {"daw": 40, "reverb": null}}
   ]
 }
 ```
+
+- `start` : premier patch (`"12-5"` ou 0–799) ; le snapshot *i* est le patch
+  `start + i`. Un rig `es8ctl.rig/1` porte `bank` à la place (8 snapshots
+  au plus).
+- `programs` : par appareil, un alias du pedalboard, un numéro, ou
+  `{"pc", "bank_msb", "bank_lsb"}`. Dans un snapshot, il surcharge celui du
+  rig ; `null` = pas de PC pour cet appareil.
 
 - `chain` : ordre des loops utilisées, de l'entrée vers la sortie ; les
   loops non citées sont rangées côté entrée, coupées, et V tout au bout s'il
@@ -174,7 +187,7 @@ mode manuel ; en mode patch, NUM1–8 rappellent les snapshots.
 
 ### `setup.json`
 
-Associe les banques aux rigs et les banques MIDI de la `pc_map` aux setlists :
+Associe les rigs à leur place (premier patch, ou banque pour un rig v1) et les banques MIDI de la `pc_map` aux setlists :
 
 ```json
 {"schema": "es8ctl.setup/1", "pedalboard": "pedalboard.json",
@@ -210,7 +223,7 @@ Associe les banques aux rigs et les banques MIDI de la `pc_map` aux setlists :
   morceau peut aussi être écrit sur place (`rig` + `sequence`, `name`
   facultatif).
 - Ni la setlist ni le morceau ne stockent de patch : ils référencent des
-  rigs déjà placés dans une banque par `setup.json`.
+  rigs déjà placés par `setup.json`.
 
 ### Document projet (`es8ctl.project/1`)
 
@@ -227,13 +240,13 @@ testable sur les fixtures. Chaque élément produit :
 | Source | Champs écrits | Patchs |
 |---|---|---|
 | `short` + nom du snapshot | `name` | chacun |
-| `chain` | `loop_chain` | les 8 |
+| `chain` | `loop_chain` | tous ceux du rig |
 | `snapshot.loops` | `loop_sw` | chacun |
-| `programs` | slots MIDI : `midi_tx_ch`, `midi_pc`, `midi_pc_bank_*`, `midi_transmit` | les 8, identiques |
+| `programs` (rig, surchargés par le snapshot) | slots MIDI : `midi_tx_ch`, `midi_pc`, `midi_pc_bank_*`, `midi_transmit` | chacun |
 | `snapshot.params` | `midi_ctl1/2_cc`, `midi_ctl1/2_cc_val` des slots | chacun |
-| switch `param` | un assign : source `NUMx`, cible `MIDI`, `assign_target_cc_ch/no`, `assign_mode`, min/max | les 8 |
-| switch `tap` | `ctl_func[NUM_x] = BPM` | les 8 |
-| switch `es8` | `ctl_func` du switch | les 8 |
+| switch `param` | un assign : source `NUMx`, cible `MIDI`, `assign_target_cc_ch/no`, `assign_mode`, min/max | tous ceux du rig |
+| switch `tap` | `ctl_func[NUM_x] = BPM` | tous ceux du rig |
+| switch `es8` | `ctl_func` du switch | tous ceux du rig |
 | switch `loop` | `manual_number<x>` = n° de loop (1–8) | **système** |
 
 Une surface possède les 12 assigns (ceux qu'elle n'utilise pas sont coupés,
@@ -274,7 +287,8 @@ devient l'entrée *i* de la banque MIDI de la setlist :
 
 ### Vérifications (refus avant toute écriture)
 
-- 8 snapshots au plus ; noms ≤ 16 caractères.
+- Rig v1 : 8 snapshots au plus. Rig v2 : pas au-delà du patch 99-8 ; deux
+  rigs ne partagent aucun patch. Noms ≤ 16 caractères.
 - Assigns ≤ 12, slots MIDI ≤ 8 par patch.
 - Loops de la chaîne et des snapshots présentes dans le pedalboard.
 - Paramètres et programmes existants ; canaux distincts entre appareils.

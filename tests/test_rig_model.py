@@ -438,3 +438,74 @@ def test_pedalboard_v1_still_accepted(dump):
            "snapshots": [{"name": "Intro", "loops": ["L5"], "params": {"daw.drive": "on"}}]}
     first = compile_rig(v1, None, rig, dump).changes["patches"]["12-1"]
     assert first["midi_pc"][0] == 13 and first["midi_ctl1_cc"][0] == 19
+
+
+# ---------------------------------------------------------------- rigs v2 : N snapshots, patchs consécutifs
+
+RIG_V2 = {
+    "schema": "es8ctl.rig/2",
+    "name": "Pulse",
+    "short": "PULSE",
+    "start": "12-5",
+    "chain": ["L2", "L5", "L7"],
+    "programs": {"daw": "crunch", "reverb": 7},
+    "snapshots": [{"name": f"S{i}", "loops": ["L5"]} for i in range(10)],
+}
+
+
+def test_rig_v2_spans_banks_from_its_start(dump):
+    changes = compile_rig(PEDALBOARD, None, RIG_V2, dump).changes["patches"]
+    assert sorted(changes, key=lambda label: [int(p) for p in label.split("-")])[0] == "12-5"
+    assert changes["12-5"]["name"] == "PULSE S0        " and changes["13-6"]["name"] == "PULSE S9        "
+    assert len(changes) == 10
+    # PC par alias (daw : crunch = 12) et par numéro (reverb : 7, sans bank MSB).
+    assert changes["12-5"]["midi_pc"][:2] == [13, 8]
+    assert changes["12-5"].get("midi_pc_bank_msb", [0, 0])[:2] == [0, 0]
+
+
+def test_snapshot_overrides_the_rig_programs(dump):
+    rig = json.loads(json.dumps(RIG_V2))
+    rig["snapshots"][1]["programs"] = {"daw": 40}
+    rig["snapshots"][2]["programs"] = {"reverb": None, "daw": {"pc": 3}}
+    changes = compile_rig(PEDALBOARD, None, rig, dump).changes["patches"]
+    assert changes["12-5"]["midi_pc"][:2] == [13, 8]
+    assert changes["12-6"]["midi_pc"][:2] == [41, 8]
+    assert changes["12-7"]["midi_tx_ch"][:2] == [1, 0] and changes["12-7"]["midi_pc"][:1] == [4]
+
+
+@pytest.mark.parametrize(
+    "edit, message",
+    [
+        (lambda r: r.update(start="100-1"), "is not a patch"),
+        (lambda r: r.update(start=795), "past the last patch"),
+        (lambda r: r.update(programs={"daw": 128}), "invalid program"),
+        (lambda r: r["snapshots"][0].update(programs={"comp": 3}), "unknown device"),
+        (lambda r: r.pop("start"), "first patch"),
+    ],
+)
+def test_rig_v2_is_refused(dump, edit, message):
+    rig = json.loads(json.dumps(RIG_V2))
+    edit(rig)
+    with pytest.raises(ModelError, match=message):
+        compile_rig(PEDALBOARD, None, rig, dump)
+
+
+def test_rigs_cannot_share_patches():
+    from es8core.model import project_from_doc
+
+    doc = project_doc()
+    doc["rigs"]["pulse"] = {**json.loads(json.dumps(RIG_V2)), "start": "11-8"}  # 11-8 … 13-1 : chevauche 12-1, 12-2
+    with pytest.raises(ModelError, match=r"patches 12-1…12-2 are already used by rig 'Crunch Lead'"):
+        project_from_doc(doc)
+    doc["rigs"]["pulse"]["start"] = "12-3"
+    assert sorted(project_from_doc(doc).rigs) == [96, 98]
+
+
+def test_setlist_steps_use_the_v2_patches(dump):
+    from es8core.model import project_from_doc
+
+    doc = project_doc()
+    doc["rigs"]["pulse"] = json.loads(json.dumps(RIG_V2))
+    doc["setlists"]["nov"]["songs"] = [{"rig": "pulse", "sequence": ["S0", "S9", "S0"]}]
+    entries = compile_project(project_from_doc(doc), dump).system_wanted["pc_map_bank1_pc"]
+    assert entries[:4] == [100, 109, 100, 100]

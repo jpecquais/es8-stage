@@ -214,6 +214,12 @@ input[type="number"] { width: 64px; font-family: var(--font-mono); }
 }
 .prog .dev { font-weight: 600; }
 .prog .meta { font: 11px var(--font-mono); color: var(--muted); }
+.prog-pick { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.prog-pick .num { display: inline-flex; align-items: center; gap: 4px; font: 11px var(--font-mono); color: var(--muted); }
+.prog-pick .num input { width: 52px; }
+.prog-cell .prog-pick { justify-content: center; }
+.prog-cell select { max-width: 120px; font-size: 11px; color: var(--muted); }
+.prog-cell.own select { color: var(--ink); border-color: var(--dest); }
 
 /* matrice des snapshots */
 .matrix-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); }

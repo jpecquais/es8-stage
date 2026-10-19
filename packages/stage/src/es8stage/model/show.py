@@ -13,8 +13,8 @@ import re
 from datetime import UTC, datetime
 
 from ..codec import patch_label
-from .compile import pc_map_entries, setlist_steps
-from .schema import Project, Rig, device_param, loop_name
+from .compile import pc_map_entries, setlist_steps, snapshot_programs
+from .schema import Project, Rig, device_param, loop_name, program_label, resolve_program
 
 SHOW_SCHEMA = "es8ctl.show/1"
 DEFAULT_RX_CHANNEL = 1  # canal de réception de l'ES-8 d'usine ; la Companion le laisse changer
@@ -25,13 +25,13 @@ def _slug(text: str) -> str:
 
 
 def _rig_ids(project: Project) -> dict[int, str]:
-    """Banque → id du rig dans le show : son id dans un document projet, sinon le nom de son fichier."""
+    """Premier patch → id du rig dans le show : son id dans un document projet, sinon le nom de son fichier."""
     if project.rig_ids is not None:
-        return {rig.doc["bank"]: rid for rid, rig in project.rig_ids.items()}
+        return {rig.start: rid for rid, rig in project.rig_ids.items()}
     ids: dict[int, str] = {}
-    for bank, rig in sorted(project.rigs.items()):
+    for start, rig in sorted(project.rigs.items()):
         rid = rig.path.stem
-        ids[bank] = rid if rid not in ids.values() else f"{rid}-{bank}"
+        ids[start] = rid if rid not in ids.values() else f"{rid}-{start}"
     return ids
 
 
@@ -69,20 +69,27 @@ def _chain(pedalboard: dict, chain) -> list[dict]:
     return out
 
 
+def _program(devices: dict, dev_id: str, value) -> dict:
+    dev = devices[dev_id]
+    return {"device": dev["name"], "program": program_label(dev, value), "pc": resolve_program(dev, value)["pc"]}
+
+
 def _rig(rig: Rig) -> dict:
     pedalboard, doc = rig.pedalboard, rig.doc
     devices = pedalboard.get("devices") or {}
     out = {
         "name": doc["name"],
-        "bank": doc["bank"],
+        "patches": [patch_label(rig.patch(i)) for i in range(len(doc["snapshots"]))],
         "snapshots": [s["name"] for s in doc["snapshots"]],
         "chain": _chain(pedalboard, doc.get("chain", [])),
-        "programs": [
-            {"device": devices[dev_id]["name"], "program": devices[dev_id]["programs"][prog_id].get("name", prog_id),
-             "pc": devices[dev_id]["programs"][prog_id]["pc"]}
-            for dev_id, prog_id in (doc.get("programs") or {}).items()
-        ],
+        "programs": [_program(devices, dev_id, value) for dev_id, value in (doc.get("programs") or {}).items()],
     }
+    overrides = {
+        s["name"]: [_program(devices, dev_id, value) for dev_id, value in snapshot_programs(doc, s).items()]
+        for s in doc["snapshots"] if s.get("programs")
+    }
+    if overrides:
+        out["snapshot_programs"] = overrides
     if rig.surface is not None:
         out["surface"] = {
             "name": rig.surface.get("name", ""),
@@ -132,7 +139,7 @@ def export_show(project: Project, exported: str | None = None) -> dict:
             "midi_bank": midi_bank,
             "pc_map": "sha256:" + hashlib.sha256(bytes(b for e in entries for b in e.to_bytes(2, "big"))).hexdigest(),
             "songs": [
-                {"name": song["name"], "rig": rig_ids[song["rig"].doc["bank"]], "first_step": firsts[k],
+                {"name": song["name"], "rig": rig_ids[song["rig"].start], "first_step": firsts[k],
                  "steps": sum(1 for s in steps if s.song == k)}
                 for k, song in enumerate(songs)
             ],
@@ -142,13 +149,13 @@ def export_show(project: Project, exported: str | None = None) -> dict:
             ],
         })
         for song in songs:
-            used[song["rig"].doc["bank"]] = song["rig"]
+            used[song["rig"].start] = song["rig"]
     show = {
         "schema": SHOW_SCHEMA,
         "exported": exported or datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
         "es8": {"rx_channel": DEFAULT_RX_CHANNEL},
         "setlists": setlists,
-        "rigs": {rig_ids[bank]: _rig(rig) for bank, rig in sorted(used.items())},
+        "rigs": {rig_ids[start]: _rig(rig) for start, rig in sorted(used.items())},
     }
     preset = _input_preset([rig for _, rig in sorted(used.items())])
     if preset:

@@ -45,7 +45,7 @@ def test_show_from_setup_matches_the_pc_map(tmp_path):
     assert [s["patch"] for s in sl["steps"]] == entries[:5]
     assert sl["pc_map"] == "sha256:" + hashlib.sha256(b"".join(e.to_bytes(2, "big") for e in entries)).hexdigest()
     crunch = show["rigs"]["crunch"]
-    assert crunch["bank"] == 12 and crunch["snapshots"] == ["Intro", "Chorus"]
+    assert crunch["patches"] == ["12-1", "12-2"] and crunch["snapshots"] == ["Intro", "Chorus"]
     assert crunch["chain"] == [{"loop": "L2", "device": "Overdrive"}, {"loop": "L5", "device": "Fuzz"},
                                {"loop": "L7", "device": "Chorus"}]
     assert crunch["programs"][0] == {"device": "DAW", "program": "crunch", "pc": 12}

@@ -73,7 +73,7 @@ Autonome : pas de chemin ni de référence à résoudre.
   "rigs": {
     "crunch": {
       "name": "Crunch Lead",
-      "bank": 12,
+      "patches": ["12-1", "12-2", "12-3", "12-4"],
       "snapshots": ["Verse", "Chorus", "Bridge", "Solo"],
       "surface": {
         "name": "Lead 4 + 4",
@@ -84,7 +84,8 @@ Autonome : pas de chemin ni de référence à résoudre.
         }
       },
       "chain": [{"loop": "L2", "device": "Overdrive"}, {"loop": "L5", "device": "Modulation"}],
-      "programs": [{"device": "DAW", "program": "Crunch Lead", "pc": 12}]
+      "programs": [{"device": "DAW", "program": "Crunch Lead", "pc": 12}],
+      "snapshot_programs": {"Solo": [{"device": "DAW", "program": "PC 40", "pc": 40}]}
     }
   },
   "input_preset": {
@@ -108,6 +109,9 @@ Autonome : pas de chemin ni de référence à résoudre.
 - `songs[].name` : nom du track ; un morceau écrit sur place dans la
   setlist prend son `name` s'il en a un, sinon le nom du rig.
 - `input_preset` : facultatif (voir « L'ES-8 comme contrôleur »).
+- `rigs[].patches` : le patch de chaque snapshot (un rig occupe des patchs
+  consécutifs, sur plusieurs banques au besoin). `snapshot_programs` :
+  seulement les snapshots qui chargent d'autres programmes que le rig.
 
 ## Entrée
 

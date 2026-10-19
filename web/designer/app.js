@@ -1,5 +1,5 @@
 // ES8 Designer — édition par intention (Preact + htm, sans compilation). Textes en anglais.
-// On décrit le pedalboard, des surfaces, des rigs (une banque, 8 snapshots) et
+// On décrit le pedalboard, des surfaces, des rigs (N snapshots sur des patchs consécutifs) et
 // des setlists ; le moteur Python compile le tout (es8core.model) contre l'état
 // lu de l'ES-8. Le projet vit dans ce navigateur et s'exporte en un fichier
 // `es8ctl.project/1`, que `es8ctl rig compile` accepte aussi. Rien n'est
@@ -21,11 +21,39 @@ const CTL_FUNCTIONS = ["OFF", "MEM_M", "MUTE", "BANK_D", "BANK_U", "MEM_U", "MEM
   "NUM_5", "NUM_6", "NUM_7", "NUM_8", "CTL_1", "CTL_2", "CTL_3", "CTL_4", "CTL_5", "CTL_6", "BPM"];
 const PC_MODES = [["none", "No program change"], ["pc", "PC"], ["bank_msb_pc", "Bank MSB + PC"], ["bank_lsb_pc", "Bank LSB + PC"], ["bank_msb_lsb_pc", "Bank MSB + LSB + PC"]];
 const NAME_LEN = 16;
-const MAX_SNAPSHOTS = 8;
+const PATCHES = 800;
 const MAX_ASSIGNS = 12;
 
 const swName = (key) => SWITCH_NAME[key] || key;
-const patchLabel = (bank, i) => `${bank}-${i + 1}`;
+const patchAt = (n) => `${Math.floor(n / 8)}-${(n % 8) + 1}`;
+const parseLabel = (text) => {
+  const m = /^\s*(\d{1,2})\s*-\s*([1-8])\s*$/.exec(String(text));
+  return m ? Number(m[1]) * 8 + Number(m[2]) - 1 : null;
+};
+// Rig v2 : premier patch `start` (numéro ou « 12-5 ») ; v1 : `bank`.
+const rigStart = (rig) => (rig.schema === "es8ctl.rig/1" ? rig.bank * 8 : typeof rig.start === "string" ? parseLabel(rig.start) ?? 0 : rig.start ?? 0);
+const patchOf = (rig, i) => patchAt(rigStart(rig) + i);
+const rigRange = (rig) => (rig.snapshots.length > 1 ? `${patchOf(rig, 0)} … ${patchOf(rig, rig.snapshots.length - 1)}` : patchOf(rig, 0));
+/** Premier patch libre où tiennent `size` patchs, hors du rig `except`. */
+function freeStart(doc, size, except) {
+  const used = new Set();
+  Object.entries(doc.rigs || {}).forEach(([id, r]) => {
+    if (id === except) return;
+    for (let i = 0; i < r.snapshots.length; i++) used.add(rigStart(r) + i);
+  });
+  for (let n = 0; n + size <= PATCHES; n++) {
+    let fits = true;
+    for (let i = 0; i < size && fits; i++) fits = !used.has(n + i);
+    if (fits) return n;
+  }
+  return null;
+}
+/** Rigs dont les patchs recouvrent ceux du rig `rid`. */
+function overlaps(doc, rid) {
+  const rig = doc.rigs[rid];
+  const a = rigStart(rig), b = a + rig.snapshots.length;
+  return Object.entries(doc.rigs).filter(([id, r]) => id !== rid && rigStart(r) < b && a < rigStart(r) + r.snapshots.length).map(([, r]) => r);
+}
 const loopNumber = (l) => (l === "LV" ? "V" : l.slice(1));
 const uid = (prefix) => `${prefix}${Date.now().toString(36)}${Math.floor(Math.random() * 46656).toString(36)}`;
 const slug = (text, taken) => {
@@ -80,7 +108,7 @@ const EXAMPLE = {
   },
   rigs: {
     crunch: {
-      schema: "es8ctl.rig/1", name: "Crunch Lead", short: "Crunch", bank: 12, surface: "lead",
+      schema: "es8ctl.rig/2", name: "Crunch Lead", short: "Crunch", start: "12-1", surface: "lead",
       chain: ["LV", "L1", "L2", "L6", "L5", "L7"],
       programs: { daw: "crunch", reverb: "hall" },
       snapshots: [
@@ -117,8 +145,14 @@ function exportShow(doc) {
   toast("Show exported. ES8 Companion in this browser opens it by itself.");
 }
 
-/** Les morceaux écrits dans une setlist ({rig, sequence}) deviennent des tracks. */
+/** Les morceaux écrits dans une setlist ({rig, sequence}) deviennent des tracks ; les rigs v1 (une banque) passent en v2. */
 function migrate(doc) {
+  Object.values(doc.rigs || {}).forEach((r) => {
+    if (r.schema !== "es8ctl.rig/1") return;
+    r.schema = "es8ctl.rig/2";
+    r.start = `${r.bank}-1`;
+    delete r.bank;
+  });
   doc.pedalboard = pedalboardV2(doc.pedalboard);
   if (doc.pedalboard) delete doc.pedalboard.name; // plus utilisé : le nom du projet suffit
   doc.tracks = doc.tracks || {};
@@ -209,13 +243,13 @@ const allParams = (pb) => Object.entries(pb.devices || {}).flatMap(([did, d]) =>
   Object.entries(d.params || {}).map(([pid, p]) => ({ ref: `${did}.${pid}`, dev: d, did, param: p, pid })));
 const wiredLoops = (pb) => LOOPS.filter((l) => pb.loops && pb.loops[l]);
 const loopTitle = (pb, l) => (pb.loops && pb.loops[l] ? pb.loops[l].name : "not wired");
-const sortedRigs = (doc) => Object.entries(doc.rigs || {}).sort((a, b) => a[1].bank - b[1].bank);
+const sortedRigs = (doc) => Object.entries(doc.rigs || {}).sort((a, b) => rigStart(a[1]) - rigStart(b[1]));
 
 /** État d'un rig d'après la compilation : bad | missing | diff | sync. */
 function rigState(preview, rid, rig) {
   if (!preview) return "";
   if (preview.error) return preview.where === `rig '${rid}'` || (preview.where || "").includes(`'${rid}'`) ? "bad" : "";
-  const labels = rig.snapshots.map((_, i) => patchLabel(rig.bank, i));
+  const labels = rig.snapshots.map((_, i) => patchOf(rig, i));
   if (preview.missing) return labels.some((l) => preview.missing.includes(l)) ? "missing" : "";
   return labels.some((l) => preview.patches[l]) ? "diff" : "sync";
 }
@@ -450,8 +484,8 @@ function IntroTab({ doc, go }) {
       status: plural(Object.keys(doc.surfaces || {}).length, "surface"),
     },
     {
-      tab: "rigs", name: "Rig", what: "A sound setup: the loops in the chain, the program each MIDI device loads, and up to 8 snapshots — the states you switch between.",
-      es8: "One bank. Each snapshot is one patch, recalled with NUM 1–8.",
+      tab: "rigs", name: "Rig", what: "A sound setup shared by many songs: the loops in the chain, the program each MIDI device loads, and as many snapshots as you need — the sounds you switch between.",
+      es8: "Patches in a row, one per snapshot. A snapshot can load other programs than the rig's.",
       status: plural(rigs.length, "rig"),
     },
     {
@@ -492,11 +526,11 @@ function IntroTab({ doc, go }) {
 
         ${firstTrack ? html`<section class="example">
           <h3>For example</h3>
-          <p>The track <b>${firstTrack.name}</b> plays the rig <b>${doc.rigs[firstTrack.rig].name}</b> (bank ${doc.rigs[firstTrack.rig].bank}):</p>
+          <p>The track <b>${firstTrack.name}</b> plays the rig <b>${doc.rigs[firstTrack.rig].name}</b> (patches ${rigRange(doc.rigs[firstTrack.rig])}):</p>
           <div class="flow">${firstTrack.sequence.map((name, k) => {
             const rig = doc.rigs[firstTrack.rig];
             const i = rig.snapshots.findIndex((sn) => sn.name === name);
-            return html`${k ? html`<span class="arrow">→</span>` : null}<span class="flow-step"><b>${name}</b><span class="mono">${i >= 0 ? patchLabel(rig.bank, i) : "?"}</span></span>`;
+            return html`${k ? html`<span class="arrow">→</span>` : null}<span class="flow-step"><b>${name}</b><span class="mono">${i >= 0 ? patchOf(rig, i) : "?"}</span></span>`;
           })}</div>
           <p class="muted small">${`${plural(firstTrack.sequence.length, "step")}, but only ${new Set(firstTrack.sequence).size} ${new Set(firstTrack.sequence).size === 1 ? "patch" : "patches"} on the ES-8.`}</p>
         </section>` : null}
@@ -524,13 +558,12 @@ function RigsTab({ s, doc, ui, go, preview }) {
   const rigs = sortedRigs(doc);
   const rid = doc.rigs && doc.rigs[ui.rig] ? ui.rig : (rigs[0] || [null])[0];
   const addRig = () => {
-    const used = rigs.map(([, r]) => r.bank);
-    let bank = 0;
-    while (used.includes(bank) && bank < 99) bank++;
+    const start = freeStart(doc, 1);
+    if (start === null) { toast("Every patch of the ES-8 is used by a rig.", "warn"); return; }
     const id = slug("rig", Object.keys(doc.rigs || {}));
     project.update((d) => {
       d.rigs = d.rigs || {};
-      d.rigs[id] = { schema: "es8ctl.rig/1", name: "New rig", short: "New", bank, surface: Object.keys(d.surfaces || {})[0] || null,
+      d.rigs[id] = { schema: "es8ctl.rig/2", name: "New rig", short: "New", start: patchAt(start), surface: Object.keys(d.surfaces || {})[0] || null,
         chain: wiredLoops(pbOf(d)).slice(0, 3), programs: {}, snapshots: [{ name: "A", loops: [], params: {} }] };
     });
     go({ rig: id });
@@ -538,16 +571,16 @@ function RigsTab({ s, doc, ui, go, preview }) {
   return html`
     <div class="body">
       <${SideList} current=${rid} onPick=${(id) => go({ rig: id })} onAdd=${addRig} addLabel="+ New rig"
-        empty="No rig yet. A rig is one bank of the ES-8: a loop chain, the programs loaded on each MIDI device, and up to 8 snapshots."
+        empty="No rig yet. A rig is a loop chain, the programs loaded on each MIDI device, and its snapshots: one patch each, in a row."
         items=${rigs.map(([id, r]) => {
           const st = rigState(preview, id, r);
-          return { id, badge: String(r.bank).padStart(2, "0"), name: r.name, sub: plural(r.snapshots.length, "snapshot"), state: st, stateTitle: STATE_TITLE[st] };
+          return { id, badge: patchOf(r, 0), name: r.name, sub: `${plural(r.snapshots.length, "snapshot")} · ${rigRange(r)}`, state: st, stateTitle: STATE_TITLE[st] };
         })} />
       <main class="center">
         ${rid ? html`<${RigEditor} key=${rid} s=${s} doc=${doc} rid=${rid} go=${go} />`
           : html`<div class="empty-state"><h2>Design your first rig</h2>
               <p>Describe what you want to hear, not which bits to set: the loops in the chain, the program each MIDI device loads,
-                and the snapshots you switch between. ES8 Designer writes the bank for you.</p>
+                and the snapshots you switch between. ES8 Designer writes the patches for you.</p>
               <button class="btn primary" onClick=${addRig}>+ New rig</button></div>`}
       </main>
       <${Tray} s=${s} preview=${preview} />
@@ -560,7 +593,12 @@ function RigEditor({ s, doc, rid, go }) {
   const edit = (fn) => project.update((d) => fn(d.rigs[rid], d));
   const short = rig.short ?? rig.name;
   const longest = Math.max(0, ...rig.snapshots.map((sn) => `${short} ${sn.name}`.trim().length));
-  const otherBanks = Object.entries(doc.rigs).filter(([id]) => id !== rid).map(([, r]) => r.bank);
+  const clash = overlaps(doc, rid);
+  const moveToFree = () => {
+    const n = freeStart(doc, rig.snapshots.length, rid);
+    if (n === null) { toast(`No room for ${plural(rig.snapshots.length, "patch")} in a row.`, "warn"); return; }
+    edit((r) => { r.start = patchAt(n); });
+  };
   const remove = () => {
     const tracks = Object.values(doc.tracks || {}).filter((t) => t.rig === rid);
     if (!confirm(`Delete the rig "${rig.name}"${tracks.length ? ` and its ${plural(tracks.length, "track")}` : ""}? The ES-8 is not changed.`)) return;
@@ -578,9 +616,13 @@ function RigEditor({ s, doc, rid, go }) {
       <label class="field">Short name (patch names: ${"<short> <snapshot>"})
         <span class="row"><input value=${short} size="10" onInput=${(e) => edit((r) => { r.short = e.target.value; })} />
           <span class="count ${longest > NAME_LEN ? "over" : ""}">${longest}/${NAME_LEN}</span></span></label>
-      <label class="field">ES-8 bank
-        <input type="number" min="0" max="99" value=${rig.bank} onInput=${(e) => edit((r) => { r.bank = Math.max(0, Math.min(99, Number(e.target.value) || 0)); })} />
-        ${otherBanks.includes(rig.bank) ? html`<span class="error small">used by another rig</span>` : null}</label>
+      <label class="field">First patch
+        <span class="row"><input class="mono" size="5" value=${typeof rig.start === "number" ? patchAt(rig.start) : rig.start}
+          onChange=${(e) => { const n = parseLabel(e.target.value); if (n === null) toast("A patch is bank-number, 0-1 … 99-8.", "warn"); else edit((r) => { r.start = patchAt(n); }); }} />
+          <span class="muted small">${rigRange(rig)}</span></span>
+        ${clash.length ? html`<span class="error small">overlaps ${clash.map((r) => r.name).join(", ")}
+          <button class="link" onClick=${moveToFree}>Move to free patches</button></span>` : null}
+        ${rigStart(rig) + rig.snapshots.length > PATCHES ? html`<span class="error small">goes past 99-8</span>` : null}</label>
       <label class="field">Surface
         <select value=${rig.surface || ""} onChange=${(e) => edit((r) => { r.surface = e.target.value || null; })}>
           <option value="">— leave switches as they are —</option>
@@ -628,28 +670,71 @@ function ChainEditor({ rig, pb, edit }) {
     </section>`;
 }
 
+/** Programme (alias, numéro ou {pc, bank_*}) → {pc, bank_msb?, bank_lsb?} ; null si absent. */
+function resolveProgram(dev, value) {
+  if (typeof value === "string") return (dev.programs || {})[value] || null;
+  if (typeof value === "number") return { pc: value };
+  return value && typeof value === "object" ? value : null;
+}
+function programText(dev, value) {
+  if (value === undefined) return "—";
+  if (value === null) return "no PC";
+  const p = resolveProgram(dev, value);
+  if (!p) return `${value}?`;
+  const alias = typeof value === "string" ? (dev.programs[value].name || value)
+    : (Object.values(dev.programs || {}).find((a) => a.pc === p.pc && a.bank_msb === p.bank_msb && a.bank_lsb === p.bank_lsb) || {}).name;
+  return `${alias ? `${alias} · ` : ""}PC ${p.pc}${p.bank_msb != null ? ` · MSB ${p.bank_msb}` : ""}${p.bank_lsb != null ? ` · LSB ${p.bank_lsb}` : ""}`;
+}
+
+/**
+ * Choix d'un programme : un alias du pedalboard, ou directement un numéro (avec bank MSB/LSB si
+ * l'appareil les demande). `inherited` (snapshot) : la valeur vide reprend celle du rig, « no PC » la coupe.
+ */
+function ProgramPicker({ dev, value, onChange, inherited }) {
+  const mode = dev.program_change || "pc";
+  const numeric = typeof value === "number" || (value && typeof value === "object");
+  const p = numeric ? resolveProgram(dev, value) : null;
+  const sel = value === undefined ? "" : value === null ? "none" : numeric ? "number" : `a:${value}`;
+  const pick = (v) => {
+    if (v === "") onChange(undefined);
+    else if (v === "none") onChange(null);
+    else if (v === "number") onChange(p ? value : 0);
+    else onChange(v.slice(2));
+  };
+  const setPart = (part, n) => {
+    const next = { pc: p ? p.pc : 0, ...(p || {}), [part]: Math.max(0, Math.min(127, Number(n) || 0)) };
+    onChange(next.bank_msb == null && next.bank_lsb == null ? next.pc : next);
+  };
+  return html`<span class="prog-pick">
+    <select value=${sel} onChange=${(e) => pick(e.target.value)}>
+      <option value="">${inherited !== undefined ? `Rig: ${programText(dev, inherited)}` : "— no program change —"}</option>
+      ${inherited !== undefined ? html`<option value="none">No program change</option>` : null}
+      ${Object.entries(dev.programs || {}).map(([pid, pp]) => html`<option value=${`a:${pid}`}>${pp.name || pid} (PC ${pp.pc})</option>`)}
+      <option value="number">PC number…</option>
+    </select>
+    ${numeric ? html`
+      <label class="num">PC<input type="number" min="0" max="127" value=${p.pc} onInput=${(e) => setPart("pc", e.target.value)} /></label>
+      ${mode.includes("msb") ? html`<label class="num">MSB<input type="number" min="0" max="127" value=${p.bank_msb ?? 0} onInput=${(e) => setPart("bank_msb", e.target.value)} /></label>` : null}
+      ${mode.includes("lsb") ? html`<label class="num">LSB<input type="number" min="0" max="127" value=${p.bank_lsb ?? 0} onInput=${(e) => setPart("bank_lsb", e.target.value)} /></label>` : null}` : null}
+  </span>`;
+}
+
 function ProgramsEditor({ rig, pb, edit }) {
-  const devices = Object.entries(pb.devices || {}).filter(([, d]) => d.program_change !== "none");
+  const devices = Object.entries(pb.devices || {}).filter(([, d]) => d.program_change !== "none" && !d.companion);
   if (!devices.length) return null;
   return html`
     <section class="section">
-      <header><h3>Programs</h3><p>Sent with every snapshot, so recalling one from another rig always loads the right sound.</p></header>
+      <header><h3>Programs</h3><p>Sent with every snapshot, so recalling one from another rig always loads the right sound.
+        A snapshot can load another one (Snapshots, below).</p></header>
       <div class="programs">
-        ${devices.map(([did, d]) => {
-          const prog = (rig.programs || {})[did];
-          const p = prog && d.programs[prog];
-          return html`<div class="prog">
-            <span class="dev">${d.name}</span>
-            <select value=${prog || ""} onChange=${(e) => edit((r) => {
-              r.programs = r.programs || {};
-              if (e.target.value) r.programs[did] = e.target.value; else delete r.programs[did];
-            })}>
-              <option value="">— no program change —</option>
-              ${Object.entries(d.programs || {}).map(([pid, pp]) => html`<option value=${pid}>${pp.name || pid} (PC ${pp.pc})</option>`)}
-            </select>
-            <span class="meta">ch ${d.channel}${p ? ` · PC ${p.pc}${p.bank_msb != null ? ` · MSB ${p.bank_msb}` : ""}${p.bank_lsb != null ? ` · LSB ${p.bank_lsb}` : ""}` : ""}</span>
-          </div>`;
-        })}
+        ${devices.map(([did, d]) => html`<div class="prog">
+          <span class="dev">${d.name}</span>
+          <${ProgramPicker} dev=${d} value=${(rig.programs || {})[did]} onChange=${(v) => edit((r) => {
+            r.programs = r.programs || {};
+            if (v === undefined) delete r.programs[did]; else r.programs[did] = v;
+          })} />
+          <span class="meta">ch ${d.channel}</span>
+        </div>`)}
       </div>
     </section>`;
 }
@@ -683,6 +768,13 @@ function SnapshotMatrix({ s, rig, rid, pb, edit, short }) {
       if (t.rig === rid) t.sequence = t.sequence.filter((n) => n !== gone.name);
     });
   });
+  const setProgram = (i, did, value) => edit((r) => {
+    const sn = r.snapshots[i];
+    sn.programs = sn.programs || {};
+    if (value === undefined) delete sn.programs[did]; else sn.programs[did] = value;
+    if (!Object.keys(sn.programs).length) delete sn.programs;
+  });
+  const pcDevices = Object.entries(pb.devices || {}).filter(([, d]) => d.program_change !== "none" && !d.companion);
   const addSnap = () => edit((r) => {
     const last = r.snapshots[r.snapshots.length - 1] || { loops: [], params: {} };
     const names = r.snapshots.map((sn) => sn.name);
@@ -694,28 +786,35 @@ function SnapshotMatrix({ s, rig, rid, pb, edit, short }) {
   return html`
     <section class="section">
       <header><h3>Snapshots</h3>
-        <button class="btn small" disabled=${cols >= MAX_SNAPSHOTS} onClick=${addSnap}
-          title="The table scrolls sideways when the snapshots don't fit">+ Snapshot (${cols}/${MAX_SNAPSHOTS})</button>
-        <p>One patch each. In patch mode, NUM 1–${Math.min(cols, 8)} recall them. Double-click a MIDI cell to send a value instead of on/off.</p></header>
+        <button class="btn small" onClick=${addSnap} title="The table scrolls sideways when the snapshots don't fit">+ Snapshot (${cols})</button>
+        <p>One patch each, in a row from ${patchOf(rig, 0)}. Double-click a MIDI cell to send a value instead of on/off.</p></header>
       <div class="matrix-wrap">
         <table class="matrix">
           <thead><tr>
             <th class="rowh"></th>
             ${rig.snapshots.map((sn, i) => {
               const full = `${short} ${sn.name}`.trim();
-              const label = patchLabel(rig.bank, i);
+              const at = patchOf(rig, i);
               return html`<th><div class="snap-h">
-                <span class="num">${label}
-                  <button class="link" title="Recall this patch on the ES-8" disabled=${!E.hasDevice() || s.busy} onClick=${() => E.play(label)}>▶</button>
+                <span class="num">${at}
+                  <button class="link" title="Recall this patch on the ES-8" disabled=${!E.hasDevice() || s.busy} onClick=${() => E.play(at)}>▶</button>
                   ${cols > 1 ? html`<button class="x" title="Remove this snapshot" onClick=${() => removeSnap(i)}>×</button>` : null}</span>
                 <input value=${sn.name} onInput=${(e) => rename(i, e.target.value)} aria-label="Snapshot name" />
                 <span class="lcd" title="Patch name on the ES-8">${full.slice(0, NAME_LEN).padEnd(NAME_LEN)}</span>
                 ${full.length > NAME_LEN ? html`<span class="count over">${full.length}/${NAME_LEN}</span>` : null}
               </div></th>`;
             })}
-            ${cols < MAX_SNAPSHOTS ? html`<th class="add-snap"><button onClick=${addSnap} title="Add a snapshot">+</button></th>` : null}
+            <th class="add-snap"><button onClick=${addSnap} title="Add a snapshot">+</button></th>
           </tr></thead>
           <tbody>
+            ${pcDevices.length ? html`<tr class="group"><td colspan=${cols + 2}>Programs</td></tr>` : null}
+            ${pcDevices.map(([did, d]) => html`<tr>
+              <td class="rowh rp"><b>PC</b>${d.name}</td>
+              ${rig.snapshots.map((sn, i) => {
+                const own = (sn.programs || {})[did];
+                return html`<td class="prog-cell ${own !== undefined ? "own" : ""}"><${ProgramPicker} dev=${d} value=${own}
+                  inherited=${(rig.programs || {})[did] ?? null} onChange=${(v) => setProgram(i, did, v)} /></td>`;
+              })}<td></td></tr>`)}
             ${chain.length ? html`<tr class="group"><td colspan=${cols + 2}>Loops</td></tr>` : null}
             ${chain.map((l) => html`<tr>
               <td class="rowh rl"><b>${l}</b>${loopTitle(pb, l)}</td>
@@ -825,7 +924,7 @@ function TracksTab({ s, doc, ui, go, preview }) {
         empty="A track is a song: one rig, and the snapshots in the order you play them."
         items=${tracks.map(([id, t]) => {
           const rig = (doc.rigs || {})[t.rig];
-          return { id, badge: rig ? String(rig.bank).padStart(2, "0") : "?", name: t.name,
+          return { id, badge: rig ? patchOf(rig, 0) : "?", name: t.name,
             sub: `${rig ? rig.name : "no rig"} · ${plural(t.sequence.length, "step")}` };
         })} />
       <main class="center">
@@ -865,7 +964,7 @@ function TrackEditor({ s, doc, tid, go }) {
       <label class="field">Rig
         <select value=${t.rig} onChange=${(e) => edit((x) => { x.rig = e.target.value; })}>
           ${!rig ? html`<option value=${t.rig}>— missing rig —</option>` : null}
-          ${sortedRigs(doc).map(([id, r]) => html`<option value=${id}>${String(r.bank).padStart(2, "0")} · ${r.name}</option>`)}
+          ${sortedRigs(doc).map(([id, r]) => html`<option value=${id}>${r.name} · ${rigRange(r)}</option>`)}
         </select></label>
       ${rig ? html`<button class="link" onClick=${() => go({ tab: "rigs", rig: t.rig })}>Edit the rig</button>` : null}
       <span class="grow"></span>
@@ -883,13 +982,13 @@ function TrackEditor({ s, doc, tid, go }) {
               ${k < 0 ? html`<option value=${name}>${name} — not in this rig</option>` : null}
               ${names.map((n) => html`<option value=${n}>${n}</option>`)}
             </select>
-            <span class="mono ${k < 0 ? "error" : "muted"}">${k < 0 ? "missing" : patchLabel(rig.bank, k)}</span>
+            <span class="mono ${k < 0 ? "error" : "muted"}">${k < 0 ? "missing" : patchOf(rig, k)}</span>
             ${k >= 0 ? html`<span class="lcd small-lcd">${`${short} ${name}`.trim().slice(0, NAME_LEN).padEnd(NAME_LEN)}</span>` : html`<span></span>`}
             <span class="row-actions">
               <button class="x" title="Duplicate" onClick=${() => edit((x) => { x.sequence.splice(i + 1, 0, name); })}>⧉</button>
               <button class="x" title="Remove" onClick=${() => edit((x) => { x.sequence.splice(i, 1); })}>×</button>
               ${E.hasDevice() && k >= 0 ? html`<button class="x" title="Recall on the ES-8" disabled=${s.busy}
-                onClick=${() => E.play(patchLabel(rig.bank, k))}>▶</button>` : null}
+                onClick=${() => E.play(patchOf(rig, k))}>▶</button>` : null}
             </span>`;
         }} />` : html`<p class="hint">No step yet.</p>`}
       <div class="row">
@@ -909,7 +1008,7 @@ function trackSteps(doc, song) {
     track: t, rig,
     steps: (t.sequence || []).map((name) => {
       const i = rig ? rig.snapshots.findIndex((sn) => sn.name === name) : -1;
-      return { name, label: rig && i >= 0 ? patchLabel(rig.bank, i) : "?" };
+      return { name, label: rig && i >= 0 ? patchOf(rig, i) : "?" };
     }),
   };
 }

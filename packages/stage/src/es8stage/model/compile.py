@@ -23,6 +23,7 @@ from ..patch import decode_patch
 from ..routing import parse as parse_chain
 from ..system import PC_MAP_ENTRIES, decode_system
 from .schema import (
+    RIG_SCHEMA,
     SNAPSHOTS_PER_RIG,
     ModelError,
     Project,
@@ -33,6 +34,8 @@ from .schema import (
     check_surface,
     device_param,
     loop_name,
+    resolve_program,
+    rig_start,
 )
 
 MIDI_SLOTS = 8
@@ -102,10 +105,16 @@ def _value(param: dict, value) -> int:
     return value
 
 
+def snapshot_programs(rig: dict, snapshot: dict) -> dict:
+    """Programmes envoyés par un snapshot : ceux du rig, surchargés par les siens (`null` = aucun PC)."""
+    merged = {**(rig.get("programs") or {}), **(snapshot.get("programs") or {})}
+    return {dev_id: value for dev_id, value in merged.items() if value is not None}
+
+
 def _midi_slots(pedalboard: dict, rig: dict, snapshot: dict) -> list[dict]:
-    """Slots MIDI d'un snapshot : par appareil, le PC du rig puis 2 CC par slot."""
+    """Slots MIDI d'un snapshot : par appareil, son PC (celui du rig ou le sien) puis 2 CC par slot."""
     devices = pedalboard.get("devices") or {}
-    programs = rig.get("programs") or {}
+    programs = snapshot_programs(rig, snapshot)
     used: dict[str, list[str]] = {}  # appareil → paramètres pilotés par au moins un snapshot
     for snap in rig["snapshots"]:
         for ref in snap.get("params") or {}:
@@ -118,7 +127,7 @@ def _midi_slots(pedalboard: dict, rig: dict, snapshot: dict) -> list[dict]:
     for dev_id in order:
         dev = devices[dev_id]
         mode = dev.get("program_change", "pc")
-        prog = dev["programs"][programs[dev_id]] if dev_id in programs else None
+        prog = resolve_program(dev, programs[dev_id]) if dev_id in programs else None
         params = sorted(used.get(dev_id, []), key=list(dev.get("params") or {}).index)
         values = snapshot.get("params") or {}
         pairs = [
@@ -200,7 +209,7 @@ def _only_changes(wanted: dict, current: dict) -> dict:
 
 
 def compile_rig(pedalboard: dict, surface: dict | None, rig: dict, dump: BulkDump) -> Compiled:
-    """Rig → changements de sa banque (et `manual_number` système). Pur, sans MIDI.
+    """Rig → changements de ses patchs (et `manual_number` système). Pur, sans MIDI.
 
     Sans surface, les switches (ctl_func, assigns) ne sont pas touchés.
     """
@@ -214,7 +223,7 @@ def compile_rig(pedalboard: dict, surface: dict | None, rig: dict, dump: BulkDum
     disabled: set[int] = set()
 
     for i, snap in enumerate(rig["snapshots"]):
-        index = rig["bank"] * SNAPSHOTS_PER_RIG + i
+        index = rig_start(rig) + i
         label = patch_label(index)
         before = _patch(dump, index)
         on = {loop_name(t) for t in snap.get("loops", [])}
@@ -257,7 +266,7 @@ def _rig_warnings(pedalboard: dict, rig: dict, disabled: set[int]) -> list[str]:
         for name, loop in (pedalboard.get("loops") or {}).items():
             if loop and name not in chain:
                 warnings.append(f"{name} ({loop['name']}) is wired but not in the chain: it stays off.")
-    free = SNAPSHOTS_PER_RIG - len(rig["snapshots"])
+    free = SNAPSHOTS_PER_RIG - len(rig["snapshots"]) if rig["schema"] == RIG_SCHEMA else 0
     if free:
         first = rig["bank"] * SNAPSHOTS_PER_RIG + len(rig["snapshots"])
         warnings.append(
@@ -304,7 +313,7 @@ def setlist_steps(project: Project, setlist: dict, setlist_path=None) -> tuple[l
             base, name = track_path or setlist_path, track["name"]
         rig = project.rig_for(rig_ref, base)
         if rig is None:
-            problems.append(f"{label}: rig {rig_ref!r} is not placed in a bank.")
+            problems.append(f"{label}: unknown rig {rig_ref!r}.")
             continue
         if not sequence:
             problems.append(f"{label}: no step in its running order.")
@@ -313,7 +322,7 @@ def setlist_steps(project: Project, setlist: dict, setlist_path=None) -> tuple[l
             if snap not in names:
                 problems.append(f"{label}: rig {rig.doc['name']!r} has no snapshot {snap!r}.")
             else:
-                steps.append(SetlistStep(len(songs), rig, snap, rig.doc["bank"] * SNAPSHOTS_PER_RIG + names.index(snap)))
+                steps.append(SetlistStep(len(songs), rig, snap, rig.patch(names.index(snap))))
         songs.append({"name": name or rig.doc["name"], "rig": rig})
     if len(steps) > PC_MAP_ENTRIES:
         problems.append(f"{len(steps)} steps, {PC_MAP_ENTRIES} at most per setlist.")

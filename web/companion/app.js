@@ -262,7 +262,7 @@ function Stage(ctx) {
             <button class="song-title" aria-expanded=${songsOpen} onClick=${() => setSongsOpen(true)}>
               <span>${v.song.name}</span><${Icon} name="down" size=${26} />
             </button>
-            <span class="sub">${v.rig.name} · bank ${v.rig.bank} · step ${v.posInSong + 1}/${v.song.steps}</span>
+            <span class="sub">${v.rig.name} · patch ${v.step.label} · step ${v.posInSong + 1}/${v.song.steps}</span>
           </div>
           <ol class="strip" aria-label="Song sequence">
             ${v.strip.map((st) => html`<li class=${`pill ${st.state}`}>${st.snapshot}</li>`)}
@@ -324,9 +324,9 @@ function Panel({ v, prefs, setPref }) {
         <div class="switches">
           ${NUMS.map((num, k) => {
             if (!manual) {
-              const snap = v.rig.snapshots[k];
-              return html`<div class=${`sw ${snap === v.step.snapshot ? "current" : snap ? "" : "unused"}`}>
-                <span class="sw-top mono">${num}</span><span class="sw-label">${snap || "—"}</span></div>`;
+              const p = v.bank.patches[k];
+              return html`<div class=${`sw ${p.current ? "current" : p.snapshot ? "" : "unused"}`}>
+                <span class="sw-top mono"><span>${num}</span><span>${p.label}</span></span><span class="sw-label">${p.snapshot || "—"}</span></div>`;
             }
             const sw = surface.switches[num];
             return sw
@@ -336,7 +336,7 @@ function Panel({ v, prefs, setPref }) {
           })}
         </div>
         ${manual && extra.length > 0 && html`<p class="muted small">${extra.map(([k, sw]) => `${k}: ${sw.label}`).join(" · ")}</p>`}
-        <span class="muted small">${manual ? `Surface “${surface.name}” · manual mode` : `Bank ${v.rig.bank} · NUM1–8 recall snapshots`}</span>
+        <span class="muted small">${manual ? `Surface “${surface.name}” · manual mode` : `Bank ${v.bank.bank} · NUM1–8 recall its patches`}</span>
         ${prefs.switchView === "manual" && !surface && html`<span class="muted small">This rig has no surface.</span>`}
       </section>
       <section class="box">
@@ -345,7 +345,7 @@ function Panel({ v, prefs, setPref }) {
       </section>
       <section class="box">
         <span class="eyebrow">Programs</span>
-        ${(v.rig.programs || []).map((p) => html`<div class="row"><span class="muted">${p.device}</span><span class="grow">${p.program}</span><span class="mono muted">PC ${p.pc}</span></div>`)}
+        ${v.programs.map((p) => html`<div class="row"><span class="muted">${p.device}</span><span class="grow">${p.program}</span><span class="mono muted">PC ${p.pc}</span></div>`)}
       </section>
     </aside>`;
 }
@@ -401,7 +401,7 @@ function Setlists({ show, pos, goTo, browse, setBrowse, setScreen }) {
           <section class="song-block">
             <span class="song-num">${si + 1}</span>
             <div>
-              <h2>${song.name} <span class="muted small">${show.rigs[song.rig].name} · bank ${show.rigs[song.rig].bank}</span></h2>
+              <h2>${song.name} <span class="muted small">${show.rigs[song.rig].name}</span></h2>
               <div class="steps">
                 ${sl.steps.slice(song.first_step, song.first_step + song.steps).map((st, j) => {
                   const index = song.first_step + j;

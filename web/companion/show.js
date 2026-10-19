@@ -85,6 +85,22 @@ export function view(show, pos) {
     next,
     nextIsNewSong: !!next && next.song !== step.song,
     nextSong,
+    programs: (show.rigs[song.rig].snapshot_programs || {})[step.snapshot] || show.rigs[song.rig].programs || [],
+    bank: bankPatches(show, step.patch),
+  };
+}
+
+/** Les 8 patchs de la banque d'un patch (NUM1–8 en mode patch) : libellé et snapshot connu du show. */
+export function bankPatches(show, patch) {
+  const bank = Math.floor(patch / 8);
+  const names = {};
+  Object.values(show.rigs).forEach((rig) => (rig.patches || []).forEach((l, i) => { names[l] = rig.snapshots[i]; }));
+  return {
+    bank,
+    patches: Array.from({ length: 8 }, (_, k) => {
+      const label = `${bank}-${k + 1}`;
+      return { label, snapshot: names[label] || null, current: bank * 8 + k === patch };
+    }),
   };
 }
 

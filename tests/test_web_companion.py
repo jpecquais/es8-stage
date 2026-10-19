@@ -26,6 +26,9 @@ console.log(JSON.stringify({
   reset: S.validPosition(show, { setlist: 1, step: 0 }),
   view: { song: v.song.name, pos: v.posInSong, now: v.step.snapshot, prev: v.prev.snapshot, next: v.next.snapshot,
           strip: v.strip.map((s) => s.state), nextSong: v.nextSong.name, newSong: v.nextIsNewSong },
+  bank: { n: v.bank.bank, current: v.bank.patches.filter((p) => p.current).map((p) => p.label),
+          names: v.bank.patches.map((p) => p.snapshot) },
+  programs: v.programs.map((p) => p.pc),
   boundary: S.view(show, at(7)).nextIsNewSong,
   next: S.move(show, at(5), "next"), prev: S.move(show, at(5), "prev"),
   atEnd: S.move(show, at(12), "next"), atStart: S.move(show, at(0), "prev"),
@@ -76,3 +79,5 @@ def test_companion_logic():
     assert r["cleared"] is False and r["noPreset"] == 4
     assert r["describe"] == ["CC 80 · ch 16", "Key →"]
     assert r["debounce"] == [True, False, True, True]
+    assert r["bank"] == {"n": 12, "current": ["12-2"], "names": ["Verse", "Chorus", "Bridge", "Solo", None, None, None, None]}
+    assert r["programs"] == [12, 5]

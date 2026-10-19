@@ -13,13 +13,14 @@ import json
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from ..codec import CodecError
+from ..codec import CodecError, parse_patch_label, patch_label
 from ..names import NAME_LEN
 
 PEDALBOARD_SCHEMA = "es8ctl.pedalboard/1"  # forme de la vue interne
 PEDALBOARD_SCHEMA_V2 = "es8ctl.pedalboard/2"  # fichier : une liste d'appareils
 SURFACE_SCHEMA = "es8ctl.surface/1"
-RIG_SCHEMA = "es8ctl.rig/1"
+RIG_SCHEMA = "es8ctl.rig/1"  # une banque, 8 snapshots au plus (`bank`)
+RIG_SCHEMA_V2 = "es8ctl.rig/2"  # N snapshots sur des patchs consécutifs (`start`)
 SETUP_SCHEMA = "es8ctl.setup/1"
 SETLIST_SCHEMA = "es8ctl.setlist/1"
 TRACK_SCHEMA = "es8ctl.track/1"
@@ -34,8 +35,9 @@ SWITCHES = (
     "NUM1", "NUM2", "NUM3", "NUM4", "NUM5", "NUM6", "NUM7", "NUM8",
     "MEM_M", "MUTE", "BANK_D", "BANK_U", "CTL_IN_1", "CTL_IN_2", "CTL_IN_3", "CTL_IN_4",
 )
-SNAPSHOTS_PER_RIG = 8
+SNAPSHOTS_PER_RIG = 8  # rig v1 : une banque
 BANKS = 100
+PATCHES = 800
 MIDI_BANKS = 7  # banques MIDI de la pc_map
 SETLIST_STEPS = 128
 # Actions de ES8 Companion (docs/companion.md) : noms des paramètres d'un appareil `companion`.
@@ -229,15 +231,85 @@ def check_surface(doc: dict, pedalboard: dict, where: str = "surface") -> dict:
     return doc
 
 
+def rig_start(doc: dict) -> int:
+    """Premier patch d'un rig (0-799) : `start` (v2, numéro ou « 12-5 »), ou le premier patch de `bank` (v1)."""
+    if doc.get("schema") == RIG_SCHEMA:
+        return doc["bank"] * SNAPSHOTS_PER_RIG
+    start = doc["start"]
+    return parse_patch_label(start) if isinstance(start, str) else start
+
+
+def rig_patches(doc: dict) -> range:
+    """Patchs occupés par un rig, un par snapshot."""
+    start = rig_start(doc)
+    return range(start, start + len(doc["snapshots"]))
+
+
+def resolve_program(dev: dict, value) -> dict | None:
+    """Programme d'un appareil → {"pc", "bank_msb"?, "bank_lsb"?} ; None si invalide.
+
+    Un programme s'écrit par son alias (nom défini dans le pedalboard), par
+    son numéro (`12`), ou en entier (`{"pc": 12, "bank_msb": 0}`).
+    """
+    if isinstance(value, str):
+        prog = (dev.get("programs") or {}).get(value)
+        return prog if isinstance(prog, dict) and _int(prog.get("pc"), 0, 127) else None
+    if _int(value, 0, 127):
+        return {"pc": value}
+    if isinstance(value, dict) and _int(value.get("pc"), 0, 127) and all(
+        _int(value[k], 0, 127) for k in ("bank_msb", "bank_lsb") if k in value
+    ):
+        return value
+    return None
+
+
+def program_label(dev: dict, value) -> str:
+    """Programme tel qu'affiché : son alias s'il en a un, sinon « PC 12 »."""
+    if isinstance(value, str):
+        prog = (dev.get("programs") or {}).get(value) or {}
+        return prog.get("name") or value
+    prog = resolve_program(dev, value) or {}
+    alias = next((p.get("name") or k for k, p in (dev.get("programs") or {}).items()
+                  if p.get("pc") == prog.get("pc") and all(p.get(b) == prog.get(b) for b in ("bank_msb", "bank_lsb"))), None)
+    return alias or f"PC {prog.get('pc')}"
+
+
+def _check_programs(programs, devices: dict, at: str, problems: list[str], allow_none: bool) -> None:
+    if not isinstance(programs, dict):
+        problems.append(f'{at}: expected an object {{"device": program}}.')
+        return
+    for dev_id, value in programs.items():
+        dev = devices.get(dev_id)
+        if dev is None:
+            problems.append(f"{at}: unknown device {dev_id!r}.")
+        elif value is None and allow_none:
+            continue
+        elif dev.get("program_change", "pc") == "none":
+            problems.append(f"{at}.{dev_id}: this device takes no program change.")
+        elif resolve_program(dev, value) is None:
+            what = f"unknown program {value!r}" if isinstance(value, str) else f"invalid program {value!r}"
+            problems.append(f"{at}.{dev_id}: {what} (an alias of the pedalboard, 0-127 or {{\"pc\": …}}).")
+
+
 def check_rig(doc: dict, pedalboard: dict, where: str = "rig") -> dict:
-    problems = _check_schema(doc, RIG_SCHEMA, where)
+    v2 = isinstance(doc, dict) and doc.get("schema") == RIG_SCHEMA_V2
+    problems = _check_schema(doc, RIG_SCHEMA_V2 if v2 else RIG_SCHEMA, where)
     if not isinstance(doc.get("name"), str) or not doc["name"].strip():
         problems.append('"name": expected a non-empty string.')
     short = doc.get("short", doc.get("name", ""))
     if not isinstance(short, str):
         problems.append('"short": expected a string.')
         short = ""
-    if not _int(doc.get("bank"), 0, BANKS - 1):
+    if v2:
+        start = doc.get("start")
+        if isinstance(start, str):
+            try:
+                parse_patch_label(start)
+            except CodecError:
+                problems.append(f'"start": {start!r} is not a patch (0-1 … 99-8).')
+        elif not _int(start, 0, PATCHES - 1):
+            problems.append(f'"start": expected the first patch, 0-{PATCHES - 1} or a label such as "12-5".')
+    elif not _int(doc.get("bank"), 0, BANKS - 1):
         problems.append(f'"bank": expected 0-{BANKS - 1}.')
     wired = {k for k, v in (pedalboard.get("loops") or {}).items() if v}
 
@@ -258,25 +330,17 @@ def check_rig(doc: dict, pedalboard: dict, where: str = "rig") -> dict:
         problems.append('"chain": expected a list of loops (input → output) or the screen notation.')
 
     devices = pedalboard.get("devices") or {}
-    programs = doc.get("programs", {})
-    if not isinstance(programs, dict):
-        problems.append('"programs": expected an object {"device": "program"}.')
-        programs = {}
-    for dev_id, prog_id in programs.items():
-        dev = devices.get(dev_id)
-        if dev is None:
-            problems.append(f"programs: unknown device {dev_id!r}.")
-        elif dev.get("program_change", "pc") == "none":
-            problems.append(f"programs.{dev_id}: this device takes no program change.")
-        elif prog_id not in (dev.get("programs") or {}):
-            problems.append(f"programs.{dev_id}: unknown program {prog_id!r}.")
+    _check_programs(doc.get("programs", {}), devices, "programs", problems, allow_none=False)
 
     snapshots = doc.get("snapshots", [])
     if not isinstance(snapshots, list) or not snapshots:
-        problems.append('"snapshots": expected a list of 1 to 8 snapshots.')
+        problems.append('"snapshots": expected a non-empty list.')
         snapshots = []
-    elif len(snapshots) > SNAPSHOTS_PER_RIG:
-        problems.append(f'"snapshots": {len(snapshots)} given, {SNAPSHOTS_PER_RIG} at most (one bank).')
+    elif not v2 and len(snapshots) > SNAPSHOTS_PER_RIG:
+        problems.append(f'"snapshots": {len(snapshots)} given, {SNAPSHOTS_PER_RIG} at most (one bank; '
+                        f'{RIG_SCHEMA_V2} has no such limit).')
+    elif v2 and not problems and rig_start(doc) + len(snapshots) > PATCHES:
+        problems.append(f'"snapshots": {len(snapshots)} from {patch_label(rig_start(doc))} go past the last patch (99-8).')
     seen: set[str] = set()
     for i, snap in enumerate(snapshots):
         at = f"snapshots[{i}]"
@@ -300,6 +364,8 @@ def check_rig(doc: dict, pedalboard: dict, where: str = "rig") -> dict:
                 problems.append(f"{at}.loops: {loop} is not wired in the pedalboard.")
             elif chain_loops is not None and loop not in chain_loops:
                 problems.append(f"{at}.loops: {loop} is not in the rig's chain.")
+        if "programs" in snap:
+            _check_programs(snap["programs"], devices, f"{at}.programs", problems, allow_none=True)
         for ref, value in (snap.get("params") or {}).items():
             if device_param(pedalboard, ref) is None:
                 problems.append(f"{at}.params: {ref!r} is not a <device>.<param> of the pedalboard.")
@@ -356,6 +422,13 @@ class Rig:
     surface: dict | None
     pedalboard: dict
 
+    @property
+    def start(self) -> int:
+        return rig_start(self.doc)
+
+    def patch(self, snapshot: int) -> int:
+        return self.start + snapshot
+
 
 @dataclass
 class Project:
@@ -368,10 +441,21 @@ class Project:
 
     path: Path | None
     pedalboard: dict
-    rigs: dict[int, Rig] = field(default_factory=dict)  # banque ES-8 → rig
+    rigs: dict[int, Rig] = field(default_factory=dict)  # premier patch → rig
     setlists: dict[int, tuple[Path | None, dict]] = field(default_factory=dict)  # banque MIDI → setlist
     rig_ids: dict[str, Rig] | None = None  # document projet : id → rig
     tracks: dict[str, dict] | None = None  # document projet : id → morceau
+
+    def place(self, rig: Rig, where: str) -> None:
+        """Range un rig à son premier patch ; refuse deux rigs sur les mêmes patchs."""
+        mine = set(rig_patches(rig.doc))
+        for other in self.rigs.values():
+            shared = sorted(mine & set(rig_patches(other.doc)))
+            if shared:
+                raise ModelError(where, [
+                    f"patches {patch_label(shared[0])}…{patch_label(shared[-1])} are already used by rig {other.doc['name']!r}."
+                ])
+        self.rigs[rig.start] = rig
 
     def rig_for(self, ref: str, from_path: Path | None) -> Rig | None:
         if self.rig_ids is not None:
@@ -426,9 +510,11 @@ def load_project(path: Path) -> Project:
     project = Project(path, pedalboard)
     for key, rel in (doc.get("rigs") or {}).items():
         rig = load_rig(path.parent / rel, pedalboard)
-        if str(rig.doc["bank"]) != str(key):
-            raise ModelError(str(path), [f'rigs.{key}: {rel} declares bank {rig.doc["bank"]}.'])
-        project.rigs[rig.doc["bank"]] = rig
+        declared = rig.doc["bank"] if rig.doc["schema"] == RIG_SCHEMA else rig.doc["start"]
+        if str(declared) != str(key):
+            what = "bank" if rig.doc["schema"] == RIG_SCHEMA else "start"
+            raise ModelError(str(path), [f"rigs.{key}: {rel} declares {what} {declared}."])
+        project.place(rig, str(path))
     for key, rel in (doc.get("setlists") or {}).items():
         if not (str(key).isdigit() and int(key) < MIDI_BANKS):
             raise ModelError(str(path), [f"setlists.{key}: MIDI bank must be 0-{MIDI_BANKS - 1}."])
@@ -461,10 +547,7 @@ def project_from_doc(doc: dict, where: str = "project") -> Project:
         if sid and sid not in surfaces:
             raise ModelError(f"rig {rid!r}", [f"unknown surface {sid!r}."])
         rig = Rig(Path(rid), rig_doc, surfaces.get(sid) if sid else None, pedalboard)
-        bank = rig_doc["bank"]
-        if bank in project.rigs:
-            raise ModelError(f"rig {rid!r}", [f"bank {bank} is already used by rig {project.rigs[bank].doc['name']!r}."])
-        project.rigs[bank] = rig
+        project.place(rig, f"rig {rid!r}")
         project.rig_ids[rid] = rig
     for tid, track in (doc.get("tracks") or {}).items():
         project.tracks[tid] = check_track(track, f"track {tid!r}")
