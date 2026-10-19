@@ -26,6 +26,7 @@ from .schema import (
     SNAPSHOTS_PER_RIG,
     ModelError,
     Project,
+    Rig,
     check_pedalboard,
     check_rig,
     check_setlist,
@@ -268,19 +269,31 @@ def _rig_warnings(pedalboard: dict, rig: dict, disabled: set[int]) -> list[str]:
     return warnings
 
 
-def compile_setlist(project: Project, midi_bank: int, setlist: dict, setlist_path=None) -> Compiled:
-    """Setlist → entrées de `pc_map_bank<b>_pc` : le PC i rappelle le pas i.
+@dataclass
+class SetlistStep:
+    """Un pas de setlist mis à plat : son morceau (index), le rig, le snapshot et le patch (0-799)."""
 
-    Les entrées après le dernier pas le répètent : un « suivant » de trop
-    ne sort pas du concert.
+    song: int
+    rig: Rig
+    snapshot: str
+    patch: int
+
+
+def setlist_steps(project: Project, setlist: dict, setlist_path=None) -> tuple[list[dict], list[SetlistStep]]:
+    """Morceaux (`name`, `rig`) et pas d'une setlist, dans l'ordre joué : le pas i est le PC i.
+
+    Seule source de la mise à plat : la `pc_map` (`compile_setlist`) et le
+    show de la Companion (`export_show`) ne peuvent pas diverger.
     """
     check_setlist(setlist)
-    steps: list[int] = []
+    songs: list[dict] = []
+    steps: list[SetlistStep] = []
     problems: list[str] = []
     if not setlist["songs"]:
         problems.append("no track yet.")
     for i, song in enumerate(setlist["songs"]):
         rig_ref, sequence, base, label = song.get("rig"), song.get("sequence"), setlist_path, f"songs[{i}]"
+        name = song.get("name")
         if "track" in song:
             found = project.track_for(song["track"], setlist_path)
             if found is None:
@@ -288,7 +301,7 @@ def compile_setlist(project: Project, midi_bank: int, setlist: dict, setlist_pat
                 continue
             track, track_path = found
             rig_ref, sequence, label = track["rig"], track.get("sequence", []), f"track {track['name']!r}"
-            base = track_path or setlist_path
+            base, name = track_path or setlist_path, track["name"]
         rig = project.rig_for(rig_ref, base)
         if rig is None:
             problems.append(f"{label}: rig {rig_ref!r} is not placed in a bank.")
@@ -296,18 +309,34 @@ def compile_setlist(project: Project, midi_bank: int, setlist: dict, setlist_pat
         if not sequence:
             problems.append(f"{label}: no step in its running order.")
         names = [s["name"] for s in rig.doc["snapshots"]]
-        for name in sequence:
-            if name not in names:
-                problems.append(f"{label}: rig {rig.doc['name']!r} has no snapshot {name!r}.")
+        for snap in sequence:
+            if snap not in names:
+                problems.append(f"{label}: rig {rig.doc['name']!r} has no snapshot {snap!r}.")
             else:
-                steps.append(rig.doc["bank"] * SNAPSHOTS_PER_RIG + names.index(name))
+                steps.append(SetlistStep(len(songs), rig, snap, rig.doc["bank"] * SNAPSHOTS_PER_RIG + names.index(snap)))
+        songs.append({"name": name or rig.doc["name"], "rig": rig})
     if len(steps) > PC_MAP_ENTRIES:
         problems.append(f"{len(steps)} steps, {PC_MAP_ENTRIES} at most per setlist.")
     if problems:
         raise ModelError(setlist.get("name", "setlist"), problems)
+    return songs, steps
+
+
+def pc_map_entries(steps: list[SetlistStep]) -> list[int]:
+    """Les 128 entrées d'une banque MIDI de la pc_map ; après le dernier pas, on le répète."""
+    patches = [s.patch for s in steps]
+    return patches + [patches[-1]] * (PC_MAP_ENTRIES - len(patches))
+
+
+def compile_setlist(project: Project, midi_bank: int, setlist: dict, setlist_path=None) -> Compiled:
+    """Setlist → entrées de `pc_map_bank<b>_pc` : le PC i rappelle le pas i.
+
+    Les entrées après le dernier pas le répètent : un « suivant » de trop
+    ne sort pas du concert.
+    """
+    _, steps = setlist_steps(project, setlist, setlist_path)
     name = f"pc_map_bank{midi_bank}_pc"
-    entries = steps + [steps[-1]] * (PC_MAP_ENTRIES - len(steps))
-    return Compiled({"patches": {}}, owns={"patches": {}, "system": [name]}, system_wanted={name: entries})
+    return Compiled({"patches": {}}, owns={"patches": {}, "system": [name]}, system_wanted={name: pc_map_entries(steps)})
 
 
 def compile_project(project: Project, dump: BulkDump) -> Compiled:

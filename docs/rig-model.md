@@ -76,6 +76,9 @@ pédale pilotable en MIDI.
 
 - Une boucle appartient à un seul appareil.
 - `midi.program_change` : `none` | `pc` | `bank_msb_pc` | `bank_lsb_pc` | `bank_msb_lsb_pc`.
+- `midi.companion: true` : l'appareil est ES8 Companion (`docs/companion.md`) ;
+  ses paramètres portent le nom d'une action (`next`, `prev`, `next_song`,
+  `prev_song`, `song_start`) et deviennent le préréglage d'entrée du show.
 - Un paramètre est désigné ailleurs par `<appareil>.<param>` (`daw.drive`) ;
   les rigs désignent les boucles par leur numéro (`L6`).
 - Les valeurs PC, bank et CC sont celles de l'appareil (0–127) ; dans le
@@ -166,7 +169,8 @@ Associe les banques aux rigs et les banques MIDI de la `pc_map` aux setlists :
 ```
 
 - Un enchaînement de morceaux ; un morceau peut revenir plus loin. Un
-  morceau peut aussi être écrit sur place (`rig` + `sequence`).
+  morceau peut aussi être écrit sur place (`rig` + `sequence`, `name`
+  facultatif).
 - Ni la setlist ni le morceau ne stockent de patch : ils référencent des
   rigs déjà placés dans une banque par `setup.json`.
 

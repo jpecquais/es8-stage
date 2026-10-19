@@ -38,6 +38,8 @@ SNAPSHOTS_PER_RIG = 8
 BANKS = 100
 MIDI_BANKS = 7  # banques MIDI de la pc_map
 SETLIST_STEPS = 128
+# Actions de ES8 Companion (docs/companion.md) : noms des paramètres d'un appareil `companion`.
+COMPANION_ACTIONS = ("next", "prev", "next_song", "prev_song", "song_start")
 
 
 class ModelError(CodecError):
@@ -89,8 +91,13 @@ def _check_midi(midi: dict, at: str, problems: list[str]) -> None:
         for bank in ("bank_msb", "bank_lsb"):
             if bank in mode and not _int(prog.get(bank), 0, 127):
                 problems.append(f"{at}.programs.{prog_id}.{bank}: expected 0-127 ({mode}).")
+    companion = midi.get("companion", False)
+    if not isinstance(companion, bool):
+        problems.append(f"{at}.companion: expected true or false.")
     for param_id, param in (midi.get("params") or {}).items():
         pat = f"{at}.params.{param_id}"
+        if companion is True and param_id not in COMPANION_ACTIONS:
+            problems.append(f"{pat}: a companion device's parameters are its actions ({', '.join(COMPANION_ACTIONS)}).")
         if not isinstance(param, dict) or not _int(param.get("cc"), 0, 127):
             problems.append(f"{pat}.cc: expected 0-127.")
             continue
@@ -326,6 +333,8 @@ def check_setlist(doc: dict, where: str = "setlist") -> dict:
         problems.append('"songs": expected a list.')
         songs = []
     for i, song in enumerate(songs):
+        if isinstance(song, dict) and "name" in song and not isinstance(song["name"], str):
+            problems.append(f"songs[{i}].name: expected a string.")
         if isinstance(song, dict) and isinstance(song.get("track"), str):
             continue
         if not isinstance(song, dict) or not isinstance(song.get("rig"), str):

@@ -5,7 +5,8 @@ le concert. Elle reçoit les appuis d'un contrôleur (n'importe lequel),
 envoie à l'ES-8 le Program Change du pas voulu, et affiche où on en est :
 morceau, pas précédent, en cours et suivant, surface de l'ES-8.
 
-Statut : spéc (2026-10-19), rien n'est codé. Maquette d'interface :
+Statut : v1 codée le 2026-10-19 (`web/companion/`, `es8ctl rig show`), pas
+encore essayée avec l'ES-8. Maquette d'interface :
 https://claude.ai/artifact/2FnJ4veQqMf1vMe9f19kWM. Modèle sur lequel elle
 s'appuie : `docs/rig-model.md` (rigs, tracks, setlists, `pc_map`).
 
@@ -205,16 +206,24 @@ Voir la maquette.
 - Plateformes v1 : navigateurs Chromium (Android, ordinateur). iOS (Safari
   n'a pas Web MIDI) : plus tard, par une coquille native fine.
 
-## Côté modèle (à faire dans `es8core`)
+## Côté modèle (`es8core`)
 
-1. Extraire de `compile_setlist` le calcul des pas
-   (`setlist_steps(project, setlist, path) -> [(song, snapshot, patch)]`),
-   utilisé par `compile_setlist` et `export_show`.
-2. `export_show(project) -> dict` (`es8core/model/show.py`), commande
-   `es8ctl rig show <setup|projet> -o show.json`, bouton dans Designer.
-3. Pedalboard : champ `companion` sur un appareil MIDI ; ses paramètres
-   doivent être des noms d'action.
+Fait le 2026-10-19 :
+
+1. `setlist_steps(project, setlist, path)` : la mise à plat des pas, seule
+   source pour `compile_setlist` (la `pc_map`) et `export_show`.
+2. `export_show(project) -> dict` (`es8core/model/show.py`) et la commande
+   `es8ctl rig show <setup|projet> -o show.json`. L'id d'un rig est son id
+   dans un document projet, sinon le nom de son fichier ; l'id d'une
+   setlist, le nom de son fichier, sinon son nom simplifié.
+3. Pedalboard : `midi.companion: true` sur un appareil ; ses paramètres
+   doivent être des noms d'action (refus sinon).
 4. Setlist : `name` facultatif sur un morceau écrit sur place.
+
+Reste : un bouton « Export show » dans ES8 Designer (pont web
+`export_show`), et le dépôt du show pour la Companion sur le même appareil.
+`es8.rx_channel` vaut 1 dans l'export (le projet ne connaît pas le canal de
+l'ES-8) ; la Companion le laisse changer.
 
 ## Tests matériel
 
