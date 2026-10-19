@@ -1,0 +1,20 @@
+{
+ "schema": "es8ctl.setlist/1",
+ "name": "Probe alt",
+ "songs": [
+  {
+   "name": "Alt",
+   "rig": "../rigs/b.json",
+   "sequence": [
+    "B3"
+   ]
+  },
+  {
+   "name": "Alt 2",
+   "rig": "../rigs/a.json",
+   "sequence": [
+    "A4"
+   ]
+  }
+ ]
+}

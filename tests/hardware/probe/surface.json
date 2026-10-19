@@ -1,0 +1,33 @@
+{
+ "schema": "es8ctl.surface/1",
+ "name": "Probe surface",
+ "switches": {
+  "NUM1": {
+   "label": "Flag",
+   "role": "param",
+   "param": "probe.flag",
+   "mode": "toggle"
+  },
+  "NUM5": {
+   "label": "Loop 2",
+   "role": "loop",
+   "loop": "L2"
+  },
+  "NUM8": {
+   "label": "Tap",
+   "role": "tap"
+  },
+  "CTL_IN_1": {
+   "label": "Next",
+   "role": "param",
+   "param": "companion.next",
+   "mode": "momentary"
+  },
+  "CTL_IN_2": {
+   "label": "Prev",
+   "role": "param",
+   "param": "companion.prev",
+   "mode": "momentary"
+  }
+ }
+}

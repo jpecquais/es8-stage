@@ -14,8 +14,9 @@ export const ACTIONS = [
 ];
 export const actionLabel = (id) => (ACTIONS.find((a) => a.id === id) || { label: id }).label;
 
-// Sans Bank Select (test H2), seule la banque MIDI 0 de la pc_map se joue.
-export const PLAYABLE_MIDI_BANKS = [0];
+// La pc_map a 7 banques MIDI (une setlist chacune), choisies par Bank Select CC0
+// (vérifié sur l'ES-8 le 2026-10-19 ; CC32 est ignoré).
+export const MIDI_BANKS = 7;
 
 // ---------------------------------------------------------------- le show
 
@@ -43,7 +44,7 @@ export function checkShow(doc) {
   return problems;
 }
 
-export const isPlayable = (setlist) => PLAYABLE_MIDI_BANKS.includes(setlist.midi_bank);
+export const isPlayable = (setlist) => Number.isInteger(setlist.midi_bank) && setlist.midi_bank >= 0 && setlist.midi_bank < MIDI_BANKS;
 
 /** Première setlist jouable, à son premier pas. */
 export function startPosition(show) {
@@ -107,8 +108,15 @@ export const goToSong = (show, setlist, song) => ({ setlist, step: show.setlists
 
 // ---------------------------------------------------------------- MIDI
 
-/** Program Change du pas, sur le canal de réception de l'ES-8 (1–16). */
-export const programChange = (channel, step) => [0xc0 | ((channel - 1) & 0x0f), step & 0x7f];
+/**
+ * Messages qui rappellent un pas, sur le canal de réception de l'ES-8 (1–16) :
+ * Bank Select CC0 = banque MIDI de la setlist, puis PC = pas. Le CC0 part à
+ * chaque fois : un autre contrôleur a pu changer de banque entre-temps.
+ */
+export const stepMessages = (channel, midiBank, step) => {
+  const ch = (channel - 1) & 0x0f;
+  return [0xb0 | ch, 0, midiBank & 0x7f, 0xc0 | ch, step & 0x7f];
+};
 
 /**
  * Message MIDI reçu → événement d'entrée, ou null s'il n'en est pas un.

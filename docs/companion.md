@@ -156,8 +156,10 @@ de la touche). Règles :
 - Après un rechargement de l'app, la position est restaurée **sans rien
   envoyer**. Toucher la carte « Now » renvoie le PC du pas en cours (utile
   après un redémarrage de l'ES-8).
-- v1 : pas de Bank Select. Seule la setlist de la banque MIDI 0 se joue ;
-  les autres se consultent. À revoir après le test H2.
+- Chaque pas part en deux messages : Bank Select CC0 = banque MIDI de la
+  setlist, puis PC *i*. Toutes les setlists se jouent (CC0 vérifié sur
+  l'ES-8 ; CC32 est ignoré). Le CC0 est renvoyé à chaque pas : un autre
+  contrôleur a pu changer de banque entre-temps.
 
 ## L'ES-8 comme contrôleur (préréglage)
 
@@ -227,15 +229,19 @@ l'ES-8) ; la Companion le laisse changer.
 
 ## Tests matériel
 
-État connu (dump du 2026-10-18) : `pc_map` d'usine = identité (banque MIDI
-*b*, PC *n* → patch 128·*b* + *n*) ; canal de réception 1 ; prise MIDI OUT
-en **Thru**. L'identité permet les tests H1 à H3 sans rien écrire.
+Faits le 2026-10-19 sans intervention humaine, avec deux rigs « sonde »
+(banques 97 et 98) dont chaque snapshot envoie CC100 = un numéro propre ;
+l'écoute de la sortie MIDI de l'ES-8 dit quel patch s'est chargé. Liste
+complète, toutes apps : `docs/hardware-tests.md`.
 
-| | Question | Bloque la v1 ? |
+| | Question | Résultat |
 |---|---|---|
-| H1 | Un PC reçu en mode patch rappelle-t-il le patch de la `pc_map` ? | **oui** |
-| H2 | Bank Select (CC0 et/ou CC32) choisit-il la banque MIDI ? | non (une setlist en v1) |
-| H3 | Un PC reçu en mode manuel est-il suivi ? | non (documenter) |
-| H4 | Qu'émet l'ES-8 sur sa sortie : écho des PC en Thru, quelque chose au changement de patch en Out ? | non (écho déjà ignoré ; recalage hors v1) |
-| H5 | Quels switches envoient un CC en mode patch (assign NUMx, CTL IN, BANK) ? | non (préréglage ES-8) |
-| H6 | Le WIDI accepte-t-il deux appareils à la fois ? | non |
+| H1 | Un PC reçu en mode patch rappelle-t-il le patch de la `pc_map` ? | **oui**, les 6 pas dans l'ordre, répétitions comprises |
+| H1b | Un PC au-delà du dernier pas ? | reste sur le dernier pas (entrées répétées) |
+| H2 | Bank Select choisit-il la banque MIDI ? | **CC0 oui**, CC32 ignoré |
+| H3 | Un PC reçu en mode manuel est-il suivi ? | à voir (il faut passer en manuel au panneau) |
+| H4 | Écho des PC en Thru ? | oui, tout ce qui entre ressort (même canal 2) ; rien en Out. Les messages des patchs sortent dans les deux modes |
+| H4b | Ce que l'ES-8 émet au changement de patch | seulement les messages MIDI du patch ; rien qui donne son numéro. Le protocole de l'éditeur sait lire le patch en cours (SysEx) : piste pour un recalage |
+| H4c | Le même PC renvoyé pour le patch déjà chargé | rien ne ressort (l'ES-8 ne recharge pas) ; « Now » ne sert donc qu'après un redémarrage ou un autre patch |
+| H5 | Quels switches envoient un CC en mode patch ? | à voir (il faut appuyer) ; rigs sonde en place : NUM1, CTL IN 1/2 |
+| H6 | Le WIDI accepte-t-il deux appareils à la fois ? | à voir |

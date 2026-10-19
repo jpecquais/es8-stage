@@ -1,0 +1,72 @@
+{
+ "schema": "es8ctl.pedalboard/2",
+ "devices": {
+  "t1": {
+   "name": "Test loop 1",
+   "loops": [
+    "L1"
+   ]
+  },
+  "t2": {
+   "name": "Test loop 2",
+   "loops": [
+    "L2"
+   ]
+  },
+  "probe": {
+   "name": "Probe",
+   "midi": {
+    "channel": 15,
+    "program_change": "pc",
+    "programs": {
+     "a": {
+      "pc": 10,
+      "name": "Probe A"
+     },
+     "b": {
+      "pc": 20,
+      "name": "Probe B"
+     }
+    },
+    "params": {
+     "id": {
+      "name": "Id",
+      "cc": 100
+     },
+     "flag": {
+      "name": "Flag",
+      "cc": 102
+     }
+    }
+   }
+  },
+  "silent": {
+   "name": "No PC",
+   "midi": {
+    "channel": 14,
+    "program_change": "none",
+    "params": {
+     "x": {
+      "name": "X",
+      "cc": 101
+     }
+    }
+   }
+  },
+  "companion": {
+   "name": "Companion",
+   "midi": {
+    "channel": 16,
+    "companion": true,
+    "params": {
+     "next": {
+      "cc": 80
+     },
+     "prev": {
+      "cc": 81
+     }
+    }
+   }
+  }
+ }
+}

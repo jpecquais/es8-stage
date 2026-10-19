@@ -99,7 +99,6 @@ def test_cli_rig_show(tmp_path):
 @pytest.mark.skipif(shutil.which("node") is None, reason="Node absent")
 def test_exported_show_is_accepted_by_the_companion():
     show = export_show(project_from_doc(companion_doc()))
-    show["setlists"][0]["midi_bank"] = 0  # jouable en v1 (sans Bank Select)
     script = f"""
 import * as S from {json.dumps(SHOW_JS.as_uri())};
 const show = {json.dumps(show)};

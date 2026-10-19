@@ -33,7 +33,7 @@ console.log(JSON.stringify({
   firstPrevSong: S.move(show, at(1), "prev_song"), lastNextSong: S.move(show, at(11), "next_song"),
   songStart: S.move(show, at(5), "song_start"), songStartNoop: S.move(show, at(2), "song_start"),
   goSong: S.goToSong(show, 0, 2),
-  pc: S.programChange(1, 5), pc16: S.programChange(16, 127),
+  pc: S.stepMessages(1, 0, 5), pc16: S.stepMessages(16, 6, 127),
   cc80, release: S.eventFromMidi([0xbf, 80, 0]), noteOn: S.eventFromMidi([0x90, 60, 100]),
   noteOff: S.eventFromMidi([0x80, 60, 0]), pcIn: S.eventFromMidi([0xc0, 5]), clock: S.eventFromMidi([0xf8]),
   presetNext: S.actionFor(S.presetBindings(show), cc80),
@@ -56,7 +56,7 @@ def test_companion_logic():
                                   capture_output=True, text=True, check=True).stdout)
     assert r["problems"] == [] and r["broken"] >= 2
     assert r["start"] == {"setlist": 0, "step": 0} and r["kept"] == {"setlist": 0, "step": 7}
-    assert r["reset"] == {"setlist": 0, "step": 0}  # banque MIDI 1 : pas jouable sans Bank Select
+    assert r["reset"] == {"setlist": 1, "step": 0}  # banque MIDI 1 : jouable (Bank Select CC0)
     assert r["view"] == {"song": "White Night", "pos": 3, "now": "Chorus", "prev": "Verse", "next": "Bridge",
                          "strip": ["done", "done", "done", "current", "next", "later"],
                          "nextSong": "Homecoming", "newSong": False}
@@ -67,7 +67,7 @@ def test_companion_logic():
     assert r["firstPrevSong"] is None and r["lastNextSong"] is None
     assert r["songStart"]["step"] == 2 and r["songStartNoop"] is None
     assert r["goSong"] == {"setlist": 0, "step": 8}
-    assert r["pc"] == [0xC0, 5] and r["pc16"] == [0xCF, 127]
+    assert r["pc"] == [0xB0, 0, 0, 0xC0, 5] and r["pc16"] == [0xBF, 0, 6, 0xCF, 127]
     assert r["cc80"] == {"type": "cc", "channel": 16, "number": 80, "press": True}
     assert r["release"]["press"] is False and r["noteOn"]["press"] is True and r["noteOff"]["press"] is False
     assert r["pcIn"] is None and r["clock"] is None  # les PC reçus ne sont jamais des entrées

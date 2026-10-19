@@ -285,7 +285,9 @@ web/
 - Une seule app connectée à l'ES-8 à la fois (verrou) : deux connexions
   recevraient les mêmes réponses et deux files d'attente s'écraseraient.
 
-## À tester sur l'appareil avant de coder la compilation
+## À tester sur l'appareil
+
+Résultats et liste à jour, toutes apps : `docs/hardware-tests.md`.
 
 1. Au rappel d'un patch, l'état des toggles du mode manuel repart-il du patch
    (`led_numX`, état des assigns) ou garde-t-il la dernière valeur ?

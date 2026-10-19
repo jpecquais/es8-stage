@@ -1,0 +1,12 @@
+{
+ "schema": "es8ctl.setup/1",
+ "pedalboard": "pedalboard.json",
+ "rigs": {
+  "97": "rigs/a.json",
+  "98": "rigs/b.json"
+ },
+ "setlists": {
+  "0": "setlists/main.json",
+  "1": "setlists/alt.json"
+ }
+}

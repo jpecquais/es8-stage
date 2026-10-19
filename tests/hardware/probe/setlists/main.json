@@ -1,0 +1,36 @@
+{
+ "schema": "es8ctl.setlist/1",
+ "name": "Probe main",
+ "songs": [
+  {
+   "name": "Song 1",
+   "rig": "../rigs/a.json",
+   "sequence": [
+    "A1",
+    "A2",
+    "A1"
+   ]
+  },
+  {
+   "name": "Song 2",
+   "rig": "../rigs/b.json",
+   "sequence": [
+    "B1"
+   ]
+  },
+  {
+   "name": "Song 3",
+   "rig": "../rigs/a.json",
+   "sequence": [
+    "A3"
+   ]
+  },
+  {
+   "name": "Song 4",
+   "rig": "../rigs/b.json",
+   "sequence": [
+    "B2"
+   ]
+  }
+ ]
+}

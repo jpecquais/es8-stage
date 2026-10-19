@@ -1,0 +1,54 @@
+{
+ "schema": "es8ctl.rig/1",
+ "name": "Probe A",
+ "short": "PRB A",
+ "bank": 97,
+ "pedalboard": "../pedalboard.json",
+ "surface": "../surface.json",
+ "chain": [
+  "L1",
+  "L2"
+ ],
+ "programs": {
+  "probe": "a"
+ },
+ "snapshots": [
+  {
+   "name": "A1",
+   "loops": [
+    "L1"
+   ],
+   "params": {
+    "probe.id": 11,
+    "silent.x": 1
+   }
+  },
+  {
+   "name": "A2",
+   "loops": [
+    "L2"
+   ],
+   "params": {
+    "probe.id": 12
+   }
+  },
+  {
+   "name": "A3",
+   "loops": [
+    "L1"
+   ],
+   "params": {
+    "probe.id": 13
+   }
+  },
+  {
+   "name": "A4",
+   "loops": [
+    "L2"
+   ],
+   "params": {
+    "probe.id": 14
+   }
+  }
+ ]
+}

@@ -74,8 +74,9 @@ function App() {
   const channel = () => live.current.prefs.channel || (live.current.show && live.current.show.es8 && live.current.show.es8.rx_channel) || 1;
 
   function sendStep(p) {
-    const sent = !!transport && transport.send(S.programChange(channel(), p.step));
-    setTraffic((t) => ({ ...t, out: sent ? `PC ${p.step}` : "not sent: no output" }));
+    const bank = live.current.show.setlists[p.setlist].midi_bank;
+    const sent = !!transport && transport.send(S.stepMessages(channel(), bank, p.step));
+    setTraffic((t) => ({ ...t, out: sent ? `${bank ? `bank ${bank} · ` : ""}PC ${p.step}` : "not sent: no output" }));
   }
   function goTo(p, label) {
     live.current.pos = p;
@@ -369,8 +370,9 @@ function Setlists({ show, pos, goTo, browse, setBrowse, setScreen }) {
         </div>
       </header>
       <div class="page-body">
-        ${!playable && html`<p class="notice">“${sl.name}” is in MIDI bank ${sl.midi_bank} of the ES-8. Until Bank Select is
-          confirmed on the ES-8, only the setlist in MIDI bank 0 can be played: this one can be browsed.</p>`}
+        ${!playable && html`<p class="notice">“${sl.name}” has no valid MIDI bank (0–6): it can only be browsed.</p>`}
+        ${playable && shown !== pos.setlist && html`<p class="muted">Browsing “${sl.name}” (MIDI bank ${sl.midi_bank}).
+          Tapping a step switches the show to this setlist.</p>`}
         ${sl.songs.map((song, si) => html`
           <section class="song-block">
             <span class="song-num">${si + 1}</span>
