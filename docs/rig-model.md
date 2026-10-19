@@ -33,6 +33,44 @@ Décisions actées :
   rig doit charger les bons programmes.
 - Les fichiers sont la vérité ; l'ES-8 est le résultat compilé.
 
+## Évolution décidée le 2026-10-19 : rigs de N snapshots (`es8ctl.rig/2`)
+
+Constat à l'usage : « un rig = une banque » force à penser en banques. Un
+répertoire (spectacle, cover band) partage une chaîne et une surface sur
+bien plus de 8 sons, et beaucoup de morceaux à 1–2 sons gaspillent 6–7
+patchs par banque. La setlist n'a pas besoin des banques : la `pc_map`
+pointe n'importe quel patch (vérifié sur l'appareil, L1).
+
+- **Un rig = une chaîne, une surface, des PC d'init, N snapshots.** Plus de
+  limite de 8 ; seule limite : les 800 patchs de l'ES-8.
+- **Plusieurs rigs par projet**, inchangé : une setlist change de rig d'un
+  morceau à l'autre (répertoire varié).
+- **PC d'init du rig** (`programs`), le dénominateur commun, copiés dans
+  chaque snapshot. **Un snapshot peut les surcharger** appareil par
+  appareil (`programs` du snapshot ; `null` = aucun PC pour cet appareil).
+- **Programme = alias ou numéro.** Partout où un programme est attendu :
+  un nom défini dans le pedalboard (alias, facultatif), ou directement un
+  numéro (`12`), ou `{"pc": 12, "msb": 0, "lsb": 3}` selon
+  `program_change`. Les alias servent seulement à l'affichage.
+- **Presets uniques, rangement serré.** Chaque snapshot occupe un patch,
+  une fois ; les répétitions restent des pas de la `pc_map`. Un rig occupe
+  des patchs consécutifs à partir de `start` (numéro de patch 0–799, ou
+  libellé `"12-5"`) ; il peut commencer au milieu d'une banque et en
+  déborder. Le Designer propose le premier patch libre.
+- Noms de patch : `<short> <snapshot>`, 16 caractères, inchangé.
+- Panneau : en mode patch, NUM1–8 rappellent les patchs de la banque
+  affichée, qui peut mêler deux rigs. Le secours sans Companion passe par
+  le numéro de patch (affiché par le Designer et la Companion).
+
+Vérifications nouvelles : rigs qui se chevauchent, dépassement du patch
+799. Celle des 8 snapshots disparaît.
+
+Compatibilité : `es8ctl.rig/1` reste lu (`bank` *b* = `start` au premier
+patch de la banque *b*) ; `setup.json` associe toujours un rig à sa place
+(clé = `start`). Le show de la Companion ne change pas (il porte déjà le
+numéro de patch de chaque pas) ; seule la `bank` d'un rig y devient
+`start`.
+
 ## Fichiers
 
 Tous en JSON, avec un champ `schema` versionné. Les références entre
