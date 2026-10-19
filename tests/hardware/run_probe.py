@@ -2,7 +2,9 @@
 
 Probe rigs: each snapshot sends CC100 = its id on channel 15 (A1..A4 = 11..14, B1..B3 = 21..23),
 plus PC 10 (rig A) / PC 20 (rig B) on channel 15.
-Usage: uv run python run_probe.py <label>
+Usage: uv run python run_probe.py [label]      PC / Bank Select sequence, JSON on stdout
+       uv run python run_probe.py listen [s]    print what the ES-8 emits for s seconds (default 60),
+                                                while someone presses switches or changes patches
 """
 
 import json
@@ -56,6 +58,18 @@ STEPS = [
     ("CC32=0 PC2", [cc(32, 0), pc(2)], "11"),
     ("PC0 on ch2", [pc(0, ch=1)], "nothing (not the rx channel)"),
 ]
+
+if len(sys.argv) > 1 and sys.argv[1] == "listen":
+    seconds = float(sys.argv[2]) if len(sys.argv) > 2 else 60
+    print(f"Listening to {PORT} for {seconds:.0f} s...", flush=True)
+    t0 = time.monotonic()
+    with mido.open_input(PORT) as inp:
+        while time.monotonic() - t0 < seconds:
+            for m in inp.iter_pending():
+                if m.type not in ("sysex", "clock", "active_sensing"):
+                    print(f"{time.monotonic() - t0:6.2f}s  {short(m)}", flush=True)
+            time.sleep(0.01)
+    sys.exit(0)
 
 with mido.open_input(PORT) as inp, mido.open_output(PORT) as out:
     threading.Thread(target=listen, args=(inp,), daemon=True).start()
