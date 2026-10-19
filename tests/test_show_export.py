@@ -108,3 +108,15 @@ console.log(JSON.stringify({{ problems: S.checkShow(show), now: S.view(show, S.s
     r = json.loads(subprocess.run(["node", "--input-type=module", "-e", script],
                                   capture_output=True, text=True, check=True).stdout)
     assert r == {"problems": [], "now": "Intro", "next": "next"}
+
+
+def test_web_show_export():
+    from es8core import webapp
+
+    show = json.loads(webapp.show_export(json.dumps(companion_doc())))["show"]
+    assert show["setlists"][0]["name"] == "Nov" and show["input_preset"]["bindings"][0]["number"] == 80
+    bad = companion_doc()
+    bad["setlists"]["nov"]["songs"] = [{"rig": "crunch", "sequence": ["Bridge"]}]
+    assert "no snapshot 'Bridge'" in json.loads(webapp.show_export(json.dumps(bad)))["problems"][0]
+    bad["setlists"] = {}
+    assert json.loads(webapp.show_export(json.dumps(bad)))["error"] == "This project has no setlist."

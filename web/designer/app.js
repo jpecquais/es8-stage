@@ -107,6 +107,16 @@ const EXAMPLE = {
 
 const clone = (x) => JSON.parse(JSON.stringify(x));
 
+// Show pour ES8 Companion : téléchargé, et déposé pour la Companion ouverte dans ce navigateur (même origine).
+const COMPANION_INBOX = "es8companion/incoming";
+function exportShow(doc) {
+  const r = call("show_export", JSON.stringify(doc));
+  if (r.error) { toast(`No show: ${(r.problems || [r.error]).join(" ")}`, "error"); return; }
+  E.download(JSON.stringify(r.show, null, 2), `${slug(doc.name, [])}.show.json`, "application/json");
+  try { localStorage.setItem(COMPANION_INBOX, JSON.stringify(r.show)); } catch { /* stockage plein : le fichier suffit */ }
+  toast("Show exported. ES8 Companion in this browser opens it by itself.");
+}
+
 /** Les morceaux écrits dans une setlist ({rig, sequence}) deviennent des tracks. */
 function migrate(doc) {
   doc.pedalboard = pedalboardV2(doc.pedalboard);
@@ -325,6 +335,8 @@ function Menu({ s, doc }) {
           <b class="grow">Project</b>
           <button class="btn small" onClick=${() => E.download(JSON.stringify(doc, null, 2), `${slug(doc.name, [])}.es8project.json`, "application/json")}
             title="One file for es8ctl rig compile, or to open on another computer">Export</button>
+          <button class="btn small" onClick=${() => exportShow(doc)}
+            title="The setlists as a show file for ES8 Companion, the stage app">Show</button>
           <label class="btn small">Open<input type="file" accept=".json" hidden
             onChange=${(e) => { e.target.files[0] && importProject(e.target.files[0]); e.target.value = ""; setOpen(false); }} /></label>
         </div>

@@ -222,8 +222,9 @@ Fait le 2026-10-19 :
    doivent être des noms d'action (refus sinon).
 4. Setlist : `name` facultatif sur un morceau écrit sur place.
 
-Reste : un bouton « Export show » dans ES8 Designer (pont web
-`export_show`), et le dépôt du show pour la Companion sur le même appareil.
+5. ES8 Designer : bouton « Show » (pont web `show_export`). Il télécharge
+   le show et le dépose pour la Companion ouverte dans le même navigateur
+   (clé `es8companion/incoming`), qui l'ouvre seule.
 `es8.rx_channel` vaut 1 dans l'export (le projet ne connaît pas le canal de
 l'ES-8) ; la Companion le laisse changer.
 

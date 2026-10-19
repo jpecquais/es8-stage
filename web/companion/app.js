@@ -8,6 +8,7 @@ import * as S from "./show.js";
 import { openWebMidi } from "./midi.js";
 
 const STORE_KEY = "es8companion";
+const INBOX = "es8companion/incoming"; // déposé par ES8 Designer (« Show »)
 // outName / inName : null = jamais choisi (choix automatique), "" = aucun port.
 const DEFAULT_PREFS = {
   outName: null, inName: null, channel: 0, keyboard: true, wake: true,
@@ -190,6 +191,20 @@ function App() {
   }
   // « ?demo » dans l'adresse : ouvre directement le show de démo (essai, captures).
   useEffect(() => { if (!show && new URLSearchParams(location.search).has("demo")) loadDemo(); }, []);
+
+  // Show déposé par ES8 Designer dans ce navigateur (même origine) : pris au démarrage ou à l'arrivée.
+  useEffect(() => {
+    const take = () => {
+      let raw = null;
+      try { raw = localStorage.getItem(INBOX); if (raw) localStorage.removeItem(INBOX); } catch { /* stockage indisponible */ }
+      if (!raw) return;
+      try { loadShow(JSON.parse(raw), "From ES8 Designer"); } catch { setError("The show from ES8 Designer is not valid JSON."); }
+    };
+    take();
+    const onStorage = (e) => { if (e.key === INBOX && e.newValue) take(); };
+    window.addEventListener("storage", onStorage);
+    return () => window.removeEventListener("storage", onStorage);
+  }, []);
 
   const ctx = {
     show, pos, prefs, setPref, bindings, setBindings, learning, setLearning, midi, ports, traffic, error,
