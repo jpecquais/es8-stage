@@ -5,8 +5,9 @@ matériel, puis des rigs et leurs snapshots, et un compilateur produit le même
 format de changements que `transform` (`{patches, system}`), consommé par
 `apply` (CLI) ou `_accept` (web). Aucun nouveau chemin vers l'ES-8.
 
-Statut : proposition (2026-10-18, setlist ajoutée le 2026-10-19), rien n'est
-codé. Code prévu dans `packages/core/src/es8core/model/`. Maquette d'interface :
+Statut : compilateur codé le 2026-10-19 (`packages/core/src/es8core/model/`,
+`es8ctl rig compile` / `rig status`, tests `tests/test_rig_model.py`), pas
+encore essayé sur l'appareil. Restent : `rig import`, l'app web. Maquette d'interface :
 https://claude.ai/artifact/2GHaQenYoy9vhSk1RPRMrZ
 
 ## Vocabulaire
@@ -17,14 +18,15 @@ https://claude.ai/artifact/2GHaQenYoy9vhSk1RPRMrZ
 | **Rig** | Une configuration jouable : ordre des loops, programme chargé sur chaque appareil, surface | une banque (8 patchs) |
 | **Snapshot** | Un état du rig : loops actives, valeurs des paramètres MIDI | un patch |
 | **Surface** | Le rôle de chaque switch, partageable entre rigs | assigns, `ctl_func`, `manual_number` |
-| **Destination** | Un appareil MIDI du pedalboard (Live n'en est qu'un) | slots MIDI des patchs |
-| **Setlist** | Déroulé d'un concert : suite de pas (rig + snapshot), répétitions comprises | une banque MIDI de la `pc_map` (système) |
+| **Destination** | Un appareil MIDI du pedalboard (un DAW n'en est qu'un) | slots MIDI des patchs |
+| **Track** | Un morceau : un rig et son déroulé (snapshots dans l'ordre joué, répétitions comprises) | rien (fichier seulement) |
+| **Setlist** | Un enchaînement de morceaux, dans l'ordre du concert | une banque MIDI de la `pc_map` (système) |
 
 Décisions actées :
 
 - Un rig = une banque, 8 snapshots au plus. Pas de rig sur deux banques en v1.
 - Le flux va dans un sens : l'ES-8 détient l'état et pilote les destinations.
-  Un changement venu d'une destination (souris dans Live) n'est pas renvoyé.
+  Un changement venu d'une destination (souris dans le DAW) n'est pas renvoyé.
 - Un rig, c'est une partie locale (loops, surface) et une partie distante
   (les PC qui chargent le bon programme sur chaque appareil). Les PC du rig
   sont recopiés dans les 8 snapshots : rappeler un snapshot depuis un autre
@@ -38,47 +40,50 @@ fichiers sont des chemins relatifs.
 
 ### `pedalboard.json`
 
+Une liste d'appareils. Chacun est branché à l'ES-8 dans une boucle (ou
+plusieurs), par MIDI, ou les deux : un DAW avec carte son en insert, une
+pédale pilotable en MIDI.
+
 ```json
 {
-  "schema": "es8ctl.pedalboard/1",
-  "name": "Pedalboard principal",
-  "loops": {
-    "L1": {"name": "Compresseur", "kind": "dynamics"},
-    "L2": {"name": "Overdrive", "kind": "drive"},
-    "L3": null,
-    "L8": {"name": "Pédale delay", "kind": "delay", "device": "delay"}
-  },
-  "ctl_out": {"CTL1": "Ampli · canal", "CTL2": "Ampli · reverb"},
-  "inputs": {"EXP1": "Pédale de volume", "CTL_IN_1": "Footswitch externe A"},
+  "schema": "es8ctl.pedalboard/2",
   "devices": {
-    "live": {
-      "name": "Ableton Live",
-      "channel": 1,
-      "program_change": "pc",
-      "repeated_pc": "ignored",
-      "programs": {"crunch": {"pc": 12, "name": "Crunch Lead"}},
-      "params": {
-        "drive": {"name": "Drive · On", "cc": 18, "off": 0, "on": 127},
-        "delay": {"name": "Delay · On", "cc": 19, "off": 0, "on": 127}
+    "comp": {"name": "Compresseur", "loops": ["L1"]},
+    "volume": {"name": "Pédale de volume", "loops": ["LV"]},
+    "daw": {
+      "name": "DAW",
+      "loops": ["L6"],
+      "midi": {
+        "channel": 1,
+        "program_change": "pc",
+        "programs": {"crunch": {"pc": 12, "name": "Crunch Lead"}},
+        "params": {
+          "drive": {"name": "Drive · On", "cc": 18, "off": 0, "on": 127},
+          "delay": {"name": "Delay · On", "cc": 19, "off": 0, "on": 127}
+        }
       }
     },
     "reverb": {
       "name": "Pédale reverb",
-      "channel": 2,
-      "program_change": "pc",
-      "repeated_pc": "reloads",
-      "programs": {"hall": {"pc": 5, "name": "Hall long"}},
-      "params": {"freeze": {"name": "Freeze", "cc": 21, "off": 0, "on": 127}}
+      "loops": ["L7"],
+      "midi": {"channel": 2, "program_change": "pc",
+               "programs": {"hall": {"pc": 5, "name": "Hall long"}},
+               "params": {"freeze": {"name": "Freeze", "cc": 21, "off": 0, "on": 127}}}
     }
   }
 }
 ```
 
-- `program_change` : `none` | `pc` | `bank_msb_pc` | `bank_lsb_pc` | `bank_msb_lsb_pc`.
-- `repeated_pc` : `ignored` | `reloads` | `unknown`. Sert aux avertissements.
-- Un paramètre est désigné ailleurs par `<appareil>.<param>` (`live.drive`).
-- Les valeurs PC sont celles de l'appareil (0–127) ; l'encodage dans
-  `midi_pc` (0–128, 0 = rien ?) est l'affaire du compilateur, à confirmer.
+- Une boucle appartient à un seul appareil.
+- `midi.program_change` : `none` | `pc` | `bank_msb_pc` | `bank_lsb_pc` | `bank_msb_lsb_pc`.
+- Un paramètre est désigné ailleurs par `<appareil>.<param>` (`daw.drive`) ;
+  les rigs désignent les boucles par leur numéro (`L6`).
+- Les valeurs PC, bank et CC sont celles de l'appareil (0–127) ; dans le
+  patch, `midi_pc`, `midi_pc_bank_*` et `midi_ctl*_cc` valent 0 = OFF puis
+  valeur + 1, `midi_tx_ch` 0 = OFF puis 1–16 (listes de l'éditeur officiel).
+- Le format v1 (`es8ctl.pedalboard/1` : `loops` et `devices` MIDI séparés)
+  reste lu ; en interne, le moteur travaille sur cette vue par boucle et par
+  appareil MIDI.
 
 ### `surface.json`
 
@@ -87,7 +92,7 @@ fichiers sont des chemins relatifs.
   "schema": "es8ctl.surface/1",
   "name": "Lead 4 + 4",
   "switches": {
-    "NUM1": {"label": "Drive", "role": "param", "param": "live.drive", "mode": "toggle"},
+    "NUM1": {"label": "Drive", "role": "param", "param": "daw.drive", "mode": "toggle"},
     "NUM4": {"label": "Freeze", "role": "param", "param": "reverb.freeze", "mode": "momentary"},
     "NUM5": {"label": "Overdrive", "role": "loop", "loop": "L2"},
     "NUM8": {"label": "Tap", "role": "tap"}
@@ -110,17 +115,18 @@ mode manuel ; en mode patch, NUM1–8 rappellent les snapshots.
   "pedalboard": "../pedalboard.json",
   "surface": "../surfaces/lead.json",
   "chain": ["L2", "L5", "L7"],
-  "programs": {"live": "crunch", "reverb": "hall"},
+  "programs": {"daw": "crunch", "reverb": "hall"},
   "snapshots": [
-    {"name": "Intro", "loops": ["L5"], "params": {"live.delay": "on"}},
-    {"name": "Chorus", "loops": ["L2", "L5"], "params": {"live.drive": "on", "live.delay": "on"}}
+    {"name": "Intro", "loops": ["L5"], "params": {"daw.delay": "on"}},
+    {"name": "Chorus", "loops": ["L2", "L5"], "params": {"daw.drive": "on", "daw.delay": "on"}}
   ]
 }
 ```
 
-- `chain` : ordre des loops utilisées ; les loops non citées sont rangées
-  après, coupées. Les montages parallèles passent par la notation de l'écran
-  (`routing.py`) au lieu d'une liste.
+- `chain` : ordre des loops utilisées, de l'entrée vers la sortie ; les
+  loops non citées sont rangées côté entrée, coupées, et V tout au bout s'il
+  n'est pas cité. Les montages parallèles passent par la notation de l'écran
+  (`routing.py`, de la sortie vers l'entrée) au lieu d'une liste.
 - Paramètre absent d'un snapshot = `off`. Une valeur peut être `on`, `off`
   ou un nombre 0–127.
 - Nom de patch : `<short> <snapshot>`, 16 caractères au plus (refus sinon).
@@ -135,6 +141,16 @@ Associe les banques aux rigs et les banques MIDI de la `pc_map` aux setlists :
  "setlists": {"0": "setlists/concert-novembre.json"}}
 ```
 
+### `tracks/<nom>.json`
+
+```json
+{"schema": "es8ctl.track/1", "name": "Premier morceau", "rig": "../rigs/crunch-lead.json",
+ "sequence": ["Verse", "Chorus", "Verse", "Chorus", "Bridge", "Chorus"]}
+```
+
+- `sequence` : noms de snapshots du rig, dans l'ordre joué. Les répétitions
+  sont des pas de plus, jamais des patchs de plus.
+
 ### `setlists/<nom>.json`
 
 ```json
@@ -142,17 +158,24 @@ Associe les banques aux rigs et les banques MIDI de la `pc_map` aux setlists :
   "schema": "es8ctl.setlist/1",
   "name": "Concert novembre",
   "songs": [
-    {"rig": "../rigs/ambient.json", "sequence": ["Intro"]},
-    {"rig": "../rigs/crunch-lead.json",
-     "sequence": ["Verse", "Chorus", "Verse", "Chorus", "Bridge", "Chorus"]}
+    {"track": "../tracks/intro.json"},
+    {"track": "../tracks/premier-morceau.json"},
+    {"rig": "../rigs/ambient.json", "sequence": ["Pad"]}
   ]
 }
 ```
 
-- `sequence` : noms de snapshots du rig, dans l'ordre joué. Les répétitions
-  sont des pas de plus, jamais des patchs de plus.
-- La setlist ne stocke aucun patch : elle référence des rigs déjà placés
-  dans une banque par `setup.json`.
+- Un enchaînement de morceaux ; un morceau peut revenir plus loin. Un
+  morceau peut aussi être écrit sur place (`rig` + `sequence`).
+- Ni la setlist ni le morceau ne stockent de patch : ils référencent des
+  rigs déjà placés dans une banque par `setup.json`.
+
+### Document projet (`es8ctl.project/1`)
+
+Tout en un fichier, avec des ids au lieu de chemins : `pedalboard`,
+`surfaces`, `rigs`, `tracks`, `setlists` (chaque setlist porte sa
+`midi_bank`). C'est le format d'ES8 Designer (export) ; `es8ctl rig
+compile` l'accepte comme un `setup.json`.
 
 ## Compilation
 
@@ -168,7 +191,13 @@ testable sur les fixtures. Chaque élément produit :
 | `snapshot.params` | `midi_ctl1/2_cc`, `midi_ctl1/2_cc_val` des slots | chacun |
 | switch `param` | un assign : source `NUMx`, cible `MIDI`, `assign_target_cc_ch/no`, `assign_mode`, min/max | les 8 |
 | switch `tap` | `ctl_func[NUM_x] = BPM` | les 8 |
-| switch `loop` | `manual_number<x>` | **système** |
+| switch `es8` | `ctl_func` du switch | les 8 |
+| switch `loop` | `manual_number<x>` = n° de loop (1–8) | **système** |
+
+Une surface possède les 12 assigns (ceux qu'elle n'utilise pas sont coupés,
+avec un avertissement) et `ctl_func` ; sans surface, ni l'un ni l'autre
+n'est touché. Seul le rôle `loop` écrit `manual_number` : ce que fait la
+valeur OFF (défaut d'usine) reste à observer.
 
 Rangement des slots MIDI (8 par patch, chacun : canal, PC, 2 CC) : par
 appareil, le premier slot porte le PC du rig et 2 CC, les suivants (même
@@ -180,7 +209,7 @@ dans l'éditeur classique et détection de divergence.
 ### Setlist → `pc_map`
 
 `compile_setlist(setup, setlist, dump) -> changes` : même principe, ne touche
-que le système. Les pas sont mis à plat (chanson après chanson) ; le pas *i*
+que le système. Les pas sont mis à plat (morceau après morceau) ; le pas *i*
 devient l'entrée *i* de la banque MIDI de la setlist :
 
 | Source | Champ écrit |
@@ -189,7 +218,7 @@ devient l'entrée *i* de la banque MIDI de la setlist :
 | entrées au-delà du dernier pas | numéro du patch du dernier pas (un « suivant » de trop ne sort pas du concert) |
 
 - Navigation : n'importe quelle source de PC sur le canal de réception de
-  l'ES-8 (EV-1-WL ou ses footswitches via le WIDI, Live, module Pico, iPad).
+  l'ES-8 (EV-1-WL ou ses footswitches via le WIDI, un DAW, module Pico, iPad).
   PC *i* → pas *i*. Les répétitions (Verse, Chorus, Verse…) coûtent une
   entrée de 10 bits, aucun patch.
 - Une banque MIDI = une setlist : 7 setlists de 128 pas au plus, choisies
@@ -209,12 +238,17 @@ devient l'entrée *i* de la banque MIDI de la setlist :
 - Paramètres et programmes existants ; canaux distincts entre appareils.
 - Champs système : deux surfaces en usage ne peuvent pas donner deux valeurs
   au même `manual_number`.
-- Setlist : 128 pas au plus ; chaque rig référencé est placé dans une banque
-  par `setup.json` ; chaque snapshot de `sequence` existe dans son rig ; une
-  banque MIDI par setlist.
+- Setlist : au moins un morceau, 128 pas au plus ; chaque morceau existe et
+  a au moins un pas ; son rig est placé dans une banque ; chaque snapshot de
+  son déroulé existe dans le rig ; une banque MIDI par setlist.
 
-Avertissements (sans refus) : appareil `repeated_pc: reloads` ou `unknown`,
-loop câblée inutilisée, slot de snapshot vide.
+Avertissements (sans refus) : loop câblée inutilisée, slot de snapshot vide.
+
+Limitation connue, assumée : chaque snapshot renvoie les PC du rig. Passer
+d'un snapshot à l'autre du même rig renvoie donc le même PC ; un appareil
+qui recharge son programme à chaque PC aura une coupure. Aucun réglage ne
+l'évite côté ES-8 (les PC doivent être dans chaque patch pour qu'un
+snapshot rappelé depuis un autre rig charge les bons programmes).
 
 ### Divergence et import
 
@@ -234,7 +268,7 @@ Deux apps, un moteur :
 web/
   shared/   engine.js (Pyodide, Web MIDI, lecture, écriture vérifiée), chain.js, describe.js
   control/  ES8 Control, l'éditeur classique (champ par champ)
-  <rigs>/   Pedalboard, Rig, Surface, Setlist, Écriture et moniteur (nom à fixer)
+  designer/ ES8 Designer : Start (introduction), Pedalboard, Surfaces, Rigs, Tracks, Setlists
 ```
 
 - Toute la logique reste dans la lib Python (`compile_rig`, `_accept`,
