@@ -693,7 +693,10 @@ function SnapshotMatrix({ s, rig, rid, pb, edit, short }) {
   const cols = rig.snapshots.length;
   return html`
     <section class="section">
-      <header><h3>Snapshots</h3><p>One patch each. In patch mode, NUM 1–${Math.min(cols, 8)} recall them. Double-click a MIDI cell to send a value instead of on/off.</p></header>
+      <header><h3>Snapshots</h3>
+        <button class="btn small" disabled=${cols >= MAX_SNAPSHOTS} onClick=${addSnap}
+          title="The table scrolls sideways when the snapshots don't fit">+ Snapshot (${cols}/${MAX_SNAPSHOTS})</button>
+        <p>One patch each. In patch mode, NUM 1–${Math.min(cols, 8)} recall them. Double-click a MIDI cell to send a value instead of on/off.</p></header>
       <div class="matrix-wrap">
         <table class="matrix">
           <thead><tr>
