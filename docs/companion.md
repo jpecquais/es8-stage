@@ -206,7 +206,11 @@ Voir la maquette.
 - Charger un show : sélecteur de fichier ; ou, sur le même appareil,
   Designer le dépose pour la Companion (même origine).
 - Plateformes v1 : navigateurs Chromium (Android, ordinateur). iOS (Safari
-  n'a pas Web MIDI) : plus tard, par une coquille native fine.
+  n'a pas Web MIDI) : en attendant, un navigateur Web MIDI de l'App Store
+  (MIDIWeb Browser, Web MIDI Browser) ; plus tard, une coquille native fine.
+- Essai sur tablette ou téléphone : `es8ctl web --lan` sert aussi sur le
+  réseau local et affiche l'adresse. En HTTP simple, ni hors ligne ni
+  Wake Lock (contexte non sécurisé) ; pour la scène, le site en HTTPS.
 
 ## Côté modèle (`es8core`)
 
