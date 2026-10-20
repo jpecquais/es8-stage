@@ -95,34 +95,50 @@ class StageServer:
         with self.lock:
             self.stage.midi_in(msg.bytes())
 
+    def _ble_reconnect(self) -> None:
+        """Relance la liaison Bluetooth : un court balayage (BlueZ doit revoir l'appareil), puis la connexion."""
+        for cmd in (["bluetoothctl", "--timeout", "6", "scan", "on"], ["bluetoothctl", "connect", self.ble_address]):
+            try:
+                subprocess.run(cmd, capture_output=True, timeout=20, check=False)
+            except (subprocess.TimeoutExpired, OSError) as exc:
+                self.log(f"Bluetooth: {exc}")
+
     def midi_loop(self) -> None:
-        """Ouvre le port quand il apparaît, le referme s'il disparaît ; relance le Bluetooth au besoin."""
+        """Ouvre le port quand il apparaît, le referme s'il disparaît ; relance le Bluetooth au besoin.
+        Ne s'arrête jamais : une erreur est notée et la boucle repart."""
+        while True:
+            try:
+                self._midi_round()
+            except Exception as exc:  # noqa: BLE001 — sur scène, la boucle ne doit jamais mourir
+                self.log(f"MIDI loop: {exc!r}")
+            time.sleep(2)
+
+    _last_ble = 0.0
+
+    def _midi_round(self) -> None:
         import mido
 
-        last_ble = 0.0
-        while True:
-            names = [n for n in mido.get_input_names() if self.midi_match.lower() in n.lower()]
-            outs = [n for n in mido.get_output_names() if self.midi_match.lower() in n.lower()]
-            if self._in is None and names and outs:
-                try:
-                    self._in = mido.open_input(names[0], callback=self._on_midi)
-                    self._out = mido.open_output(outs[0])
-                    self.port_name = outs[0]
-                    self.log(f"MIDI: {outs[0]}")
-                    self._changed()
-                except OSError as exc:
-                    self.log(f"MIDI open failed: {exc}")
-                    self._close()
-            elif self._in is not None and not names:
-                self.log("MIDI: port gone")
-                self._close()
+        names = [n for n in mido.get_input_names() if self.midi_match.lower() in n.lower()]
+        outs = [n for n in mido.get_output_names() if self.midi_match.lower() in n.lower()]
+        if self._in is None and names and outs:
+            try:
+                self._in = mido.open_input(names[0], callback=self._on_midi)
+                self._out = mido.open_output(outs[0])
+                self.port_name = outs[0]
+                self.log(f"MIDI: {outs[0]}")
                 self._changed()
-            if self._in is None and self.ble_address and time.monotonic() - last_ble > 10:
-                last_ble = time.monotonic()
-                subprocess.run(["bluetoothctl", "connect", self.ble_address], capture_output=True, timeout=20, check=False)
-            if self.show_file.is_file() and self.show_file.stat().st_mtime_ns != self._show_mtime:
-                self._load_show()
-            time.sleep(2)
+            except OSError as exc:
+                self.log(f"MIDI open failed: {exc}")
+                self._close()
+        elif self._in is not None and not names:
+            self.log("MIDI: port gone")
+            self._close()
+            self._changed()
+        if self._in is None and self.ble_address and time.monotonic() - self._last_ble > 10:
+            self._last_ble = time.monotonic()
+            self._ble_reconnect()
+        if self.show_file.is_file() and self.show_file.stat().st_mtime_ns != self._show_mtime:
+            self._load_show()
 
     def _close(self) -> None:
         for p in (self._in, self._out):
