@@ -371,9 +371,54 @@ def check_rig(doc: dict, pedalboard: dict, where: str = "rig") -> dict:
                 problems.append(f"{at}.params: {ref!r} is not a <device>.<param> of the pedalboard.")
             elif value not in ("on", "off") and not _int(value, 0, 127):
                 problems.append(f"{at}.params.{ref}: on, off or 0-127.")
+    _rig_devices(doc, pedalboard, problems)
     if problems:
         raise ModelError(where, problems)
     return doc
+
+
+def device_ids(pedalboard: dict) -> list[str]:
+    """Appareils du pedalboard : ceux des boucles (v2) et ceux qui reçoivent du MIDI."""
+    ids = [loop["device"] for loop in (pedalboard.get("loops") or {}).values() if loop and loop.get("device")]
+    return list(dict.fromkeys([*ids, *(pedalboard.get("devices") or {})]))
+
+
+def _rig_devices(doc: dict, pedalboard: dict, problems: list[str]) -> None:
+    """`devices` : les appareils dont le rig se sert ; rien d'autre ne peut y être référencé.
+
+    Absent = tous. Les appareils `companion` (contrôleurs de la Companion) sont toujours permis.
+    """
+    if "devices" not in doc:
+        return
+    used = doc["devices"]
+    known = device_ids(pedalboard)
+    if not isinstance(used, list) or not all(isinstance(d, str) for d in used):
+        problems.append('"devices": expected a list of device ids.')
+        return
+    for dev_id in used:
+        if dev_id not in known:
+            problems.append(f"devices: unknown device {dev_id!r}.")
+    allowed = set(used) | {d for d, dev in (pedalboard.get("devices") or {}).items() if dev.get("companion")}
+    loops = pedalboard.get("loops") or {}
+
+    def check(dev_id, what):
+        if dev_id and dev_id not in allowed:
+            problems.append(f"{what}: device {dev_id!r} is not used by this rig (add it to \"devices\").")
+
+    if isinstance(doc.get("chain"), list):
+        for token in doc["chain"]:
+            loop = loops.get(loop_name(token) or "")
+            if loop:
+                check(loop.get("device"), f"chain: {loop_name(token)}")
+    for dev_id in doc.get("programs") or {}:
+        check(dev_id, "programs")
+    for i, snap in enumerate(doc.get("snapshots") or []):
+        if not isinstance(snap, dict):
+            continue
+        for dev_id in snap.get("programs") or {}:
+            check(dev_id, f"snapshots[{i}].programs")
+        for ref in snap.get("params") or {}:
+            check(ref.split(".")[0] if isinstance(ref, str) else None, f"snapshots[{i}].params.{ref}")
 
 
 def check_track(doc: dict, where: str = "track") -> dict:

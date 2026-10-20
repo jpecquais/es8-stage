@@ -21,6 +21,8 @@ const CTL_FUNCTIONS = ["OFF", "MEM_M", "MUTE", "BANK_D", "BANK_U", "MEM_U", "MEM
   "NUM_5", "NUM_6", "NUM_7", "NUM_8", "CTL_1", "CTL_2", "CTL_3", "CTL_4", "CTL_5", "CTL_6", "BPM"];
 const PC_MODES = [["none", "No program change"], ["pc", "PC"], ["bank_msb_pc", "Bank MSB + PC"], ["bank_lsb_pc", "Bank LSB + PC"], ["bank_msb_lsb_pc", "Bank MSB + LSB + PC"]];
 const NAME_LEN = 16;
+// Actions de ES8 Companion : les paramètres d'un appareil `companion` portent ces noms (docs/companion.md).
+const COMPANION_ACTIONS = [["next", "Next step"], ["prev", "Previous step"], ["next_song", "Next song"], ["prev_song", "Previous song"], ["song_start", "Song start"]];
 const PATCHES = 800;
 const MAX_ASSIGNS = 12;
 
@@ -243,6 +245,9 @@ const allParams = (pb) => Object.entries(pb.devices || {}).flatMap(([did, d]) =>
   Object.entries(d.params || {}).map(([pid, p]) => ({ ref: `${did}.${pid}`, dev: d, did, param: p, pid })));
 const wiredLoops = (pb) => LOOPS.filter((l) => pb.loops && pb.loops[l]);
 const loopTitle = (pb, l) => (pb.loops && pb.loops[l] ? pb.loops[l].name : "not wired");
+/** Le rig se sert-il de cet appareil ? `devices` absent = tous ; un contrôleur `companion` toujours. */
+const usesDevice = (rig, pb, did) => !rig.devices || rig.devices.includes(did) || !!((pb.devices || {})[did] || {}).companion;
+const loopDevice = (pb, l) => (pb.loops && pb.loops[l] ? pb.loops[l].device : null);
 const sortedRigs = (doc) => Object.entries(doc.rigs || {}).sort((a, b) => rigStart(a[1]) - rigStart(b[1]));
 
 /** État d'un rig d'après la compilation : bad | missing | diff | sync. */
@@ -631,9 +636,44 @@ function RigEditor({ s, doc, rid, go }) {
       <span class="grow"></span>
       <button class="link danger" onClick=${remove}>Delete rig</button>
     </div>
+    <${DevicesEditor} rig=${rig} doc=${doc} pb=${pb} edit=${edit} />
     <${ChainEditor} rig=${rig} pb=${pb} edit=${edit} />
     <${ProgramsEditor} rig=${rig} pb=${pb} edit=${edit} />
     <${SnapshotMatrix} s=${s} rig=${rig} rid=${rid} pb=${pb} edit=${edit} short=${short} />`;
+}
+
+function DevicesEditor({ rig, doc, pb, edit }) {
+  const devices = Object.entries((doc.pedalboard || {}).devices || {}).filter(([, d]) => !(d.midi && d.midi.companion));
+  if (!devices.length) return null;
+  const toggle = (did) => edit((r) => {
+    const all = devices.map(([id]) => id);
+    const used = r.devices || all;
+    const loops = LOOPS.filter((l) => loopDevice(pb, l) === did);
+    if (used.includes(did)) {
+      r.devices = used.filter((id) => id !== did);
+      if (Array.isArray(r.chain)) r.chain = r.chain.filter((l) => !loops.includes(l));
+      if (r.programs) delete r.programs[did];
+      r.snapshots.forEach((sn) => {
+        sn.loops = (sn.loops || []).filter((l) => !loops.includes(l));
+        if (sn.programs) { delete sn.programs[did]; if (!Object.keys(sn.programs).length) delete sn.programs; }
+        if (sn.params) Object.keys(sn.params).forEach((ref) => { if (ref.split(".")[0] === did) delete sn.params[ref]; });
+      });
+    } else {
+      r.devices = all.filter((id) => used.includes(id) || id === did);
+      if (Array.isArray(r.chain)) loops.forEach((l) => { if (!r.chain.includes(l)) r.chain.push(l); });
+    }
+    if (r.devices.length === all.length) delete r.devices;
+  });
+  return html`
+    <section class="section">
+      <header><h3>Devices</h3><p>The pedals and devices this rig uses. Only these appear below.</p></header>
+      <div class="spare">${devices.map(([did, d]) => {
+        const on = usesDevice(rig, pb, did);
+        const what = [...(d.loops || []), d.midi ? `MIDI ch ${d.midi.channel}` : null].filter(Boolean).join(" · ");
+        return html`<button class="chip ${on ? "solid" : ""}" aria-pressed=${on} onClick=${() => toggle(did)}
+          title=${on ? "Used: click to leave it out of this rig" : "Not used: click to add it"}>${d.name}<span class="muted small"> ${what}</span></button>`;
+      })}</div>
+    </section>`;
 }
 
 function ChainEditor({ rig, pb, edit }) {
@@ -643,7 +683,7 @@ function ChainEditor({ rig, pb, edit }) {
       <button class="link" onClick=${() => edit((r) => { r.chain = []; })}>Back to a simple chain</button></section>`;
   }
   const chain = rig.chain || [];
-  const spare = wiredLoops(pb).filter((l) => !chain.includes(l));
+  const spare = wiredLoops(pb).filter((l) => !chain.includes(l) && usesDevice(rig, pb, loopDevice(pb, l)));
   const move = (i, d) => edit((r) => { const [x] = r.chain.splice(i, 1); r.chain.splice(i + d, 0, x); });
   return html`
     <section class="section">
@@ -720,7 +760,7 @@ function ProgramPicker({ dev, value, onChange, inherited }) {
 }
 
 function ProgramsEditor({ rig, pb, edit }) {
-  const devices = Object.entries(pb.devices || {}).filter(([, d]) => d.program_change !== "none" && !d.companion);
+  const devices = Object.entries(pb.devices || {}).filter(([did, d]) => d.program_change !== "none" && !d.companion && usesDevice(rig, pb, did));
   if (!devices.length) return null;
   return html`
     <section class="section">
@@ -741,7 +781,7 @@ function ProgramsEditor({ rig, pb, edit }) {
 
 function SnapshotMatrix({ s, rig, rid, pb, edit, short }) {
   const chain = typeof rig.chain === "string" ? wiredLoops(pb) : rig.chain || [];
-  const params = allParams(pb);
+  const params = allParams(pb).filter((p) => usesDevice(rig, pb, p.did) && !p.dev.companion);
   const [editing, setEditing] = useState(null); // "i:ref" en saisie numérique
   const toggleLoop = (i, l) => edit((r) => {
     const sn = r.snapshots[i];
@@ -774,7 +814,7 @@ function SnapshotMatrix({ s, rig, rid, pb, edit, short }) {
     if (value === undefined) delete sn.programs[did]; else sn.programs[did] = value;
     if (!Object.keys(sn.programs).length) delete sn.programs;
   });
-  const pcDevices = Object.entries(pb.devices || {}).filter(([, d]) => d.program_change !== "none" && !d.companion);
+  const pcDevices = Object.entries(pb.devices || {}).filter(([did, d]) => d.program_change !== "none" && !d.companion && usesDevice(rig, pb, did));
   const addSnap = () => edit((r) => {
     const last = r.snapshots[r.snapshots.length - 1] || { loops: [], params: {} };
     const names = r.snapshots.map((sn) => sn.name);
@@ -1261,8 +1301,22 @@ function PedalboardTab({ s, doc, preview }) {
 }
 
 function DeviceCard({ did, d, view, edit }) {
-  const ed = (fn) => edit((p) => fn(p.devices[did], p));
+  const ed = (fn) => edit((p, doc) => fn(p.devices[did], p, doc));
   const midi = d.midi;
+  /** Un paramètre change d'id : les surfaces et les snapshots qui le citent suivent. */
+  const renameRefs = (doc, renames) => {
+    const map = (ref) => (renames[ref] !== undefined ? renames[ref] : ref);
+    Object.values(doc.surfaces || {}).forEach((sf) => Object.entries(sf.switches || {}).forEach(([key, sw]) => {
+      if (sw.role !== "param" || renames[sw.param] === undefined) return;
+      if (map(sw.param)) sw.param = map(sw.param); else delete sf.switches[key];
+    }));
+    Object.values(doc.rigs || {}).forEach((r) => r.snapshots.forEach((sn) => {
+      if (!sn.params) return;
+      const params = {};
+      Object.entries(sn.params).forEach(([ref, v]) => { if (map(ref)) params[map(ref)] = v; });
+      sn.params = params;
+    }));
+  };
   const mode = midi ? midi.program_change || "pc" : "pc";
   const num = (v, lo, hi) => Math.max(lo, Math.min(hi, Number(v) || 0));
   const loops = d.loops || [];
@@ -1281,6 +1335,40 @@ function DeviceCard({ did, d, view, edit }) {
     dev.midi[key] = dev.midi[key] || {};
     dev.midi[key][slug(item.name, Object.keys(dev.midi[key]))] = item;
   });
+  // ES8 Companion : ses paramètres sont ses actions ; on reprend ceux qui existent (« Next », « Previous »…).
+  const setCompanion = (on) => ed((dev, _, doc) => {
+    if (!on) { delete dev.midi.companion; return; }
+    dev.midi.companion = true;
+    dev.midi.program_change = "none";
+    dev.midi.programs = {};
+    const guess = (name) => {
+      const n = (name || "").toLowerCase();
+      if (n.includes("song") && n.includes("next")) return "next_song";
+      if (n.includes("song") && n.includes("prev")) return "prev_song";
+      if (n.includes("start")) return "song_start";
+      if (n.includes("next")) return "next";
+      if (n.includes("prev")) return "prev";
+      return null;
+    };
+    const params = {};
+    const renames = {};
+    Object.entries(dev.midi.params || {}).forEach(([pid, p]) => {
+      const action = COMPANION_ACTIONS.map(([a]) => a).find((a) => a === pid) || guess(p.name || pid);
+      const free = action && !params[action] ? action : COMPANION_ACTIONS.map(([a]) => a).find((a) => !params[a]);
+      if (free) params[free] = { ...p, name: p.name || COMPANION_ACTIONS.find(([a]) => a === free)[1] };
+      renames[`${did}.${pid}`] = free ? `${did}.${free}` : null;
+    });
+    renameRefs(doc, renames);
+    if (!Object.keys(params).length) { params.next = { name: "Next step", cc: 80 }; params.prev = { name: "Previous step", cc: 81 }; }
+    dev.midi.params = params;
+  });
+  const renameAction = (from, to) => ed((dev, _, doc) => {
+    const params = {};
+    Object.entries(dev.midi.params).forEach(([pid, p]) => { params[pid === from ? to : pid] = p; });
+    dev.midi.params = params;
+    renameRefs(doc, { [`${did}.${from}`]: `${did}.${to}` });
+  });
+  const companion = Boolean(midi && midi.companion);
   return html`
     <div class="device ${midi ? "has-midi" : ""} ${loops.length ? "has-loop" : ""}">
       <div class="dev-top">
@@ -1305,9 +1393,12 @@ function DeviceCard({ did, d, view, edit }) {
           ${midi ? html`
             <label class="field inline">Channel<input type="number" min="1" max="16" value=${midi.channel}
               onInput=${(e) => ed((dev) => { dev.midi.channel = num(e.target.value, 1, 16); })} /></label>
-            <label class="field inline">Program change
+            ${!companion ? html`<label class="field inline">Program change
               <select value=${mode} onChange=${(e) => ed((dev) => { dev.midi.program_change = e.target.value; })}>
                 ${PC_MODES.map(([v, label]) => html`<option value=${v}>${label}</option>`)}</select></label>` : null}
+            <label class="switch" title="The switches that drive ES8 Companion (next / previous…), not a sound device">
+              <input type="checkbox" checked=${companion} onChange=${(e) => setCompanion(e.target.checked)} />
+              <span>ES8 Companion</span></label>` : null}
         </div>
       </div>
       <button class="x" title="Remove this device" onClick=${() => { if (confirm(`Remove "${d.name}"?`)) edit((p) => { delete p.devices[did]; }); }}>×</button>
@@ -1326,16 +1417,25 @@ function DeviceCard({ did, d, view, edit }) {
           <button class="link" onClick=${() => addItem("programs", { name: "Program", pc: 0, ...(mode.includes("msb") ? { bank_msb: 0 } : {}), ...(mode.includes("lsb") ? { bank_lsb: 0 } : {}) })}>+ program</button>
         </div>` : null}
         <div>
-          <h3>Parameters (CC)</h3>
-          <table class="tbl"><thead><tr><th>Name</th><th>CC</th><th>Off</th><th>On</th><th></th></tr></thead>
+          <h3>${companion ? "Actions (CC)" : "Parameters (CC)"}</h3>
+          ${companion ? html`<p class="hint">Assign these to switches in a surface: ES8 Companion learns them from the show.</p>` : null}
+          <table class="tbl"><thead><tr><th>${companion ? "Action" : "Name"}</th><th>CC</th><th>Off</th><th>On</th><th></th></tr></thead>
           <tbody>${Object.entries(midi.params || {}).map(([pid, p]) => html`<tr>
-            <td><input value=${p.name || ""} placeholder=${pid} onInput=${(e) => ed((dev) => { dev.midi.params[pid].name = e.target.value; })} /></td>
+            <td>${companion
+              ? html`<select value=${pid} onChange=${(e) => renameAction(pid, e.target.value)}>
+                  ${COMPANION_ACTIONS.filter(([a]) => a === pid || !midi.params[a]).map(([a, text]) => html`<option value=${a}>${text}</option>`)}</select>`
+              : html`<input value=${p.name || ""} placeholder=${pid} onInput=${(e) => ed((dev) => { dev.midi.params[pid].name = e.target.value; })} />`}</td>
             <td><input type="number" min="0" max="127" value=${p.cc} onInput=${(e) => ed((dev) => { dev.midi.params[pid].cc = num(e.target.value, 0, 127); })} /></td>
             <td><input type="number" min="0" max="127" value=${p.off ?? 0} onInput=${(e) => ed((dev) => { dev.midi.params[pid].off = num(e.target.value, 0, 127); })} /></td>
             <td><input type="number" min="0" max="127" value=${p.on ?? 127} onInput=${(e) => ed((dev) => { dev.midi.params[pid].on = num(e.target.value, 0, 127); })} /></td>
             <td><button class="x" onClick=${() => ed((dev) => { delete dev.midi.params[pid]; })} aria-label="Remove">×</button></td></tr>`)}
           </tbody></table>
-          <button class="link" onClick=${() => addItem("params", { name: "Parameter", cc: 0 })}>+ parameter</button>
+          ${companion
+            ? (() => {
+              const free = COMPANION_ACTIONS.find(([a]) => !midi.params[a]);
+              return free ? html`<button class="link" onClick=${() => ed((dev) => { dev.midi.params[free[0]] = { name: free[1], cc: 0 }; })}>+ action</button>` : null;
+            })()
+            : html`<button class="link" onClick=${() => addItem("params", { name: "Parameter", cc: 0 })}>+ parameter</button>`}
         </div>
       </div>` : null}
       ${!midi && !loops.length ? html`<p class="hint">Not connected yet: pick a loop and/or turn MIDI on.</p>` : null}

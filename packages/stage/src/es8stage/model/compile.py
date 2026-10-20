@@ -263,8 +263,9 @@ def _rig_warnings(pedalboard: dict, rig: dict, disabled: set[int]) -> list[str]:
     warnings = []
     if isinstance(rig.get("chain"), list):
         chain = {loop_name(t) for t in rig["chain"]}
+        used = rig.get("devices")
         for name, loop in (pedalboard.get("loops") or {}).items():
-            if loop and name not in chain:
+            if loop and name not in chain and (used is None or loop.get("device") in used):
                 warnings.append(f"{name} ({loop['name']}) is wired but not in the chain: it stays off.")
     free = SNAPSHOTS_PER_RIG - len(rig["snapshots"]) if rig["schema"] == RIG_SCHEMA else 0
     if free:

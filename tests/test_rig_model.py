@@ -509,3 +509,20 @@ def test_setlist_steps_use_the_v2_patches(dump):
     doc["setlists"]["nov"]["songs"] = [{"rig": "pulse", "sequence": ["S0", "S9", "S0"]}]
     entries = compile_project(project_from_doc(doc), dump).system_wanted["pc_map_bank1_pc"]
     assert entries[:4] == [100, 109, 100, 100]
+
+
+def test_rig_devices_limit_what_it_uses(dump):
+    rig = {**json.loads(json.dumps(RIG_V2)), "devices": ["od", "fuzz", "chorus", "daw", "reverb"]}
+    warnings = compile_rig(PEDALBOARD, None, rig, dump).warnings
+    # Comp et Delay ne servent pas à ce rig : pas d'avertissement « wired but not in the chain ».
+    assert not any("Comp" in w or "Delay" in w for w in warnings)
+    rig["devices"].remove("reverb")
+    with pytest.raises(ModelError, match="device 'reverb' is not used by this rig"):
+        compile_rig(PEDALBOARD, None, rig, dump)
+    rig["programs"].pop("reverb")
+    rig["devices"].remove("fuzz")
+    with pytest.raises(ModelError, match=r"chain: L5: device 'fuzz' is not used"):
+        compile_rig(PEDALBOARD, None, rig, dump)
+    rig["devices"].append("nope")
+    with pytest.raises(ModelError, match="unknown device 'nope'"):
+        compile_rig(PEDALBOARD, None, rig, dump)

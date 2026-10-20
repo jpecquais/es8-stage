@@ -205,6 +205,8 @@ input[type="number"] { width: 64px; font-family: var(--font-mono); }
 .chip:hover { border-color: var(--led); color: var(--led-glow); }
 .chip.dest:hover { border-color: var(--dest); color: var(--dest); }
 .chip.solid { border-style: solid; background: var(--raised); }
+.chip[aria-pressed="true"] { border-color: var(--accent); background: var(--accent-soft); color: var(--ink); }
+.chip[aria-pressed="false"] { opacity: 0.6; }
 
 /* programmes */
 .programs { display: flex; flex-wrap: wrap; gap: 10px; }

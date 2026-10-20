@@ -173,6 +173,10 @@ mode manuel ; en mode patch, NUM1–8 rappellent les snapshots.
 - `start` : premier patch (`"12-5"` ou 0–799) ; le snapshot *i* est le patch
   `start + i`. Un rig `es8ctl.rig/1` porte `bank` à la place (8 snapshots
   au plus).
+- `devices` (facultatif) : les appareils du pedalboard dont le rig se sert.
+  Absent = tous. Chaîne, programmes et paramètres ne peuvent citer que ceux-là
+  (les appareils `companion` sont toujours permis) ; le Designer ne montre
+  qu'eux, et l'avertissement « câblée mais hors chaîne » les ignore.
 - `programs` : par appareil, un alias du pedalboard, un numéro, ou
   `{"pc", "bank_msb", "bank_lsb"}`. Dans un snapshot, il surcharge celui du
   rig ; `null` = pas de PC pour cet appareil.
