@@ -120,8 +120,9 @@ Fait le 2026-10-20 : BLE MIDI du Pi (WIDI appairé), `es8core.stage` et sa
 parité avec `show.js`, `es8ctl web --stage`, mode écran de la Companion,
 service systemd, point d'accès.
 
-1. **Pont MIDI** + choix automatique dans `engine.js` + verrou de scène :
-   le Designer et Control retrouvent l'ES-8 depuis n'importe quel écran.
+1. ✅ **Pont MIDI** + choix automatique dans `engine.js` + verrou de scène
+   (2026-10-20 : ES8 Control ouvert sur le Mac depuis `pedalbrain.local` lit
+   l'ES-8 par le Pi en 19 s ; une écriture hors mode édition rend 423).
 2. **Bibliothèque** : projets du Designer et shows gardés sur le Pi.
 3. **Page de l'hôte** : bibliothèque, système.
 4. **Réseau** : bascule réseau connu / point d'accès, réglages et garde-fou.
