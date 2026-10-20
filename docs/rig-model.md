@@ -177,6 +177,10 @@ mode manuel ; en mode patch, NUM1–8 rappellent les snapshots.
   Absent = tous. Chaîne, programmes et paramètres ne peuvent citer que ceux-là
   (les appareils `companion` sont toujours permis) ; le Designer ne montre
   qu'eux, et l'avertissement « câblée mais hors chaîne » les ignore.
+- `backup` (facultatif) : le rig de secours (id dans un projet, chemin sur
+  disque). Un snapshot peut désigner le sien (`"backup": "Lead"`) ; sans
+  lien, c'est le premier snapshot du rig de secours. Le bouton Backup de
+  ES8 Companion bascule chaque pas sur son secours (voir « Setlist → pc_map »).
 - `programs` : par appareil, un alias du pedalboard, un numéro, ou
   `{"pc", "bank_msb", "bank_lsb"}`. Dans un snapshot, il surcharge celui du
   rig ; `null` = pas de PC pour cet appareil.
@@ -275,6 +279,7 @@ devient l'entrée *i* de la banque MIDI de la setlist :
 |---|---|
 | pas *i* = (rig, snapshot) | `pc_map_bank<b>_pc[i]` = numéro du patch du snapshot (0–799) |
 | entrées au-delà du dernier pas | numéro du patch du dernier pas (un « suivant » de trop ne sort pas du concert) |
+| patchs de secours des pas (rig `backup`) | en haut : PC 127, 126… dans l'ordre d'apparition ; pas + secours ≤ 128 |
 
 - Navigation : n'importe quelle source de PC sur le canal de réception de
   l'ES-8 (EV-1-WL ou ses footswitches via le WIDI, un DAW, module Pico, iPad).

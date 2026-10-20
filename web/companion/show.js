@@ -11,6 +11,7 @@ export const ACTIONS = [
   { id: "next_song", label: "Next song" },
   { id: "prev_song", label: "Previous song" },
   { id: "song_start", label: "Song start" },
+  { id: "backup", label: "Backup on / off" },
 ];
 export const actionLabel = (id) => (ACTIONS.find((a) => a.id === id) || { label: id }).label;
 
@@ -129,6 +130,12 @@ export const goToSong = (show, setlist, song) => ({ setlist, step: show.setlists
  * Bank Select CC0 = banque MIDI de la setlist, puis PC = pas. Le CC0 part à
  * chaque fois : un autre contrôleur a pu changer de banque entre-temps.
  */
+/** Ce que joue un pas : son PC et son patch, ou ceux de son secours en mode backup (s'il en a un). */
+export function played(step, index, backup) {
+  if (backup && step.backup) return { pc: step.backup.pc, label: step.backup.label, snapshot: step.backup.snapshot, rig: step.backup.rig, backup: true };
+  return { pc: index, label: step.label, snapshot: step.snapshot, backup: false };
+}
+
 export const stepMessages = (channel, midiBank, step) => {
   const ch = (channel - 1) & 0x0f;
   return [0xb0 | ch, 0, midiBank & 0x7f, 0xc0 | ch, step & 0x7f];

@@ -18,12 +18,12 @@
       "steps": [
         {"song": 0, "snapshot": "Intro", "patch": 88, "label": "11-1"},
         {"song": 0, "snapshot": "Swell", "patch": 89, "label": "11-2"},
-        {"song": 1, "snapshot": "Verse", "patch": 96, "label": "12-1"},
-        {"song": 1, "snapshot": "Chorus", "patch": 97, "label": "12-2"},
-        {"song": 1, "snapshot": "Verse", "patch": 96, "label": "12-1"},
-        {"song": 1, "snapshot": "Chorus", "patch": 97, "label": "12-2"},
-        {"song": 1, "snapshot": "Bridge", "patch": 98, "label": "12-3"},
-        {"song": 1, "snapshot": "Chorus", "patch": 97, "label": "12-2"},
+        {"song": 1, "snapshot": "Verse", "patch": 96, "label": "12-1", "backup": {"rig": "GP50 backup", "snapshot": "Crunch", "pc": 127, "label": "40-1"}},
+        {"song": 1, "snapshot": "Chorus", "patch": 97, "label": "12-2", "backup": {"rig": "GP50 backup", "snapshot": "Lead", "pc": 126, "label": "40-2"}},
+        {"song": 1, "snapshot": "Verse", "patch": 96, "label": "12-1", "backup": {"rig": "GP50 backup", "snapshot": "Crunch", "pc": 127, "label": "40-1"}},
+        {"song": 1, "snapshot": "Chorus", "patch": 97, "label": "12-2", "backup": {"rig": "GP50 backup", "snapshot": "Lead", "pc": 126, "label": "40-2"}},
+        {"song": 1, "snapshot": "Bridge", "patch": 98, "label": "12-3", "backup": {"rig": "GP50 backup", "snapshot": "Crunch", "pc": 127, "label": "40-1"}},
+        {"song": 1, "snapshot": "Chorus", "patch": 97, "label": "12-2", "backup": {"rig": "GP50 backup", "snapshot": "Lead", "pc": 126, "label": "40-2"}},
         {"song": 2, "snapshot": "Intro", "patch": 88, "label": "11-1"},
         {"song": 2, "snapshot": "Swell", "patch": 89, "label": "11-2"},
         {"song": 2, "snapshot": "Pad", "patch": 90, "label": "11-3"},
@@ -45,8 +45,8 @@
         {"song": 0, "snapshot": "Chorus", "patch": 97, "label": "12-2"},
         {"song": 0, "snapshot": "Bridge", "patch": 98, "label": "12-3"},
         {"song": 0, "snapshot": "Chorus", "patch": 97, "label": "12-2"},
-        {"song": 1, "snapshot": "Intro", "patch": 88, "label": "11-1"},
-        {"song": 1, "snapshot": "Pad", "patch": 90, "label": "11-3"}
+        {"song": 1, "snapshot": "Intro", "patch": 88, "label": "11-1", "backup": {"rig": "GP50 backup", "snapshot": "Crunch", "pc": 127, "label": "40-1"}},
+        {"song": 1, "snapshot": "Pad", "patch": 90, "label": "11-3", "backup": {"rig": "GP50 backup", "snapshot": "Crunch", "pc": 127, "label": "40-1"}}
       ]
     }
   ],

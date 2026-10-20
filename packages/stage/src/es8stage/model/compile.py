@@ -281,12 +281,16 @@ def _rig_warnings(pedalboard: dict, rig: dict, disabled: set[int]) -> list[str]:
 
 @dataclass
 class SetlistStep:
-    """Un pas de setlist mis à plat : son morceau (index), le rig, le snapshot et le patch (0-799)."""
+    """Un pas de setlist mis à plat : son morceau (index), le rig, le snapshot et le patch (0-799).
+
+    `backup` : (rig, snapshot, patch) de secours, si le rig en désigne un.
+    """
 
     song: int
     rig: Rig
     snapshot: str
     patch: int
+    backup: tuple[Rig, str, int] | None = None
 
 
 def setlist_steps(project: Project, setlist: dict, setlist_path=None) -> tuple[list[dict], list[SetlistStep]]:
@@ -323,19 +327,42 @@ def setlist_steps(project: Project, setlist: dict, setlist_path=None) -> tuple[l
             if snap not in names:
                 problems.append(f"{label}: rig {rig.doc['name']!r} has no snapshot {snap!r}.")
             else:
-                steps.append(SetlistStep(len(songs), rig, snap, rig.patch(names.index(snap))))
+                step = SetlistStep(len(songs), rig, snap, rig.patch(names.index(snap)))
+                found = project.backup_for(rig, snap)
+                if found:
+                    brig, bsnap = found
+                    bnames = [s["name"] for s in brig.doc["snapshots"]]
+                    step.backup = (brig, bsnap, brig.patch(bnames.index(bsnap)))
+                steps.append(step)
         songs.append({"name": name or rig.doc["name"], "rig": rig})
-    if len(steps) > PC_MAP_ENTRIES:
-        problems.append(f"{len(steps)} steps, {PC_MAP_ENTRIES} at most per setlist.")
+    backups = len(backup_pcs(steps))
+    if len(steps) + backups > PC_MAP_ENTRIES:
+        problems.append(f"{len(steps)} steps and {backups} backup patches, {PC_MAP_ENTRIES} at most per setlist.")
     if problems:
         raise ModelError(setlist.get("name", "setlist"), problems)
     return songs, steps
 
 
+def backup_pcs(steps: list[SetlistStep]) -> dict[int, int]:
+    """Patch de secours → son PC : rangés en haut de la banque MIDI (127, 126…), dans l'ordre d'apparition."""
+    pcs: dict[int, int] = {}
+    for step in steps:
+        if step.backup and step.backup[2] not in pcs:
+            pcs[step.backup[2]] = PC_MAP_ENTRIES - 1 - len(pcs)
+    return pcs
+
+
 def pc_map_entries(steps: list[SetlistStep]) -> list[int]:
-    """Les 128 entrées d'une banque MIDI de la pc_map ; après le dernier pas, on le répète."""
+    """Les 128 entrées d'une banque MIDI de la pc_map.
+
+    Les pas en bas (PC i = pas i), les patchs de secours en haut (127, 126…) ;
+    entre les deux, le dernier pas répété : un « suivant » de trop ne sort pas du concert.
+    """
     patches = [s.patch for s in steps]
-    return patches + [patches[-1]] * (PC_MAP_ENTRIES - len(patches))
+    entries = patches + [patches[-1]] * (PC_MAP_ENTRIES - len(patches))
+    for patch, pc in backup_pcs(steps).items():
+        entries[pc] = patch
+    return entries
 
 
 def compile_setlist(project: Project, midi_bank: int, setlist: dict, setlist_path=None) -> Compiled:

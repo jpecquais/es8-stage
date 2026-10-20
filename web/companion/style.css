@@ -17,6 +17,7 @@
   --on-next: #06222b;
   --ok: #6fd08c;
   --bad: #ff8a5c;
+  --backup: #ff5c7a;
   --warn-soft: #2a1b0e;
   --font-display: "Barlow Condensed", "Arial Narrow", sans-serif;
   --font-body: "Barlow", system-ui, -apple-system, "Segoe UI", sans-serif;
@@ -100,6 +101,9 @@ code { font-family: var(--font-mono); font-size: 0.9em; }
 .card.prev .card-name { font-family: var(--font-body); font-weight: 500; font-size: 18px; color: var(--ink-2); }
 .card.prev .meta { color: var(--muted); }
 .card.now { flex: 1; min-height: 0; background: var(--now); color: var(--on-now); border: none; }
+.card.now.on-backup { background: var(--backup); }
+.backup-btn { background: none; color: var(--ink-2); cursor: pointer; font: inherit; font-weight: 600; }
+.backup-btn.on { background: var(--backup); border-color: var(--backup); color: #1a0509; }
 .card.now .eyebrow { color: var(--on-now); font-weight: 600; }
 .card.now .card-name { flex: 1; display: flex; align-items: center; font-size: clamp(56px, 20vw, 96px); }
 .card.next { border: 2px solid var(--next); }

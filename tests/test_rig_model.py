@@ -526,3 +526,47 @@ def test_rig_devices_limit_what_it_uses(dump):
     rig["devices"].append("nope")
     with pytest.raises(ModelError, match="unknown device 'nope'"):
         compile_rig(PEDALBOARD, None, rig, dump)
+
+
+# ---------------------------------------------------------------- secours
+
+BACKUP = {"schema": "es8ctl.rig/2", "name": "Backup", "short": "BK", "start": "40-1",
+          "chain": ["L8"], "snapshots": [{"name": "Clean"}, {"name": "Lead"}]}
+
+
+def backup_doc():
+    doc = project_doc()
+    doc["rigs"]["backup"] = json.loads(json.dumps(BACKUP))
+    doc["rigs"]["crunch"]["backup"] = "backup"
+    doc["rigs"]["crunch"]["snapshots"][1]["backup"] = "Lead"  # Chorus → Lead ; Intro → Clean (premier)
+    return doc
+
+
+def test_backup_patches_sit_at_the_top_of_the_pc_map(dump):
+    from es8core.model import export_show, project_from_doc
+
+    project = project_from_doc(backup_doc())
+    entries = compile_project(project, dump).system_wanted["pc_map_bank1_pc"]
+    # Pas : Intro, Chorus, Intro (96, 97, 96) ; secours : Clean (320) en PC 127, Lead (321) en PC 126.
+    assert entries[:4] == [96, 97, 96, 96] and entries[125:] == [96, 321, 320]
+    steps = export_show(project)["setlists"][0]["steps"]
+    assert steps[0]["backup"] == {"rig": "Backup", "snapshot": "Clean", "pc": 127, "label": "40-1"}
+    assert steps[1]["backup"] == {"rig": "Backup", "snapshot": "Lead", "pc": 126, "label": "40-2"}
+
+
+@pytest.mark.parametrize(
+    "edit, message",
+    [
+        (lambda d: d["rigs"]["crunch"].update(backup="nope"), "unknown rig 'nope'"),
+        (lambda d: d["rigs"]["crunch"].update(backup="crunch"), "its own backup"),
+        (lambda d: d["rigs"]["crunch"]["snapshots"][1].update(backup="Solo"), "no snapshot 'Solo'"),
+        (lambda d: d["rigs"]["crunch"].pop("backup"), "the rig has no backup rig"),
+    ],
+)
+def test_backup_is_refused(edit, message):
+    from es8core.model import project_from_doc
+
+    doc = backup_doc()
+    edit(doc)
+    with pytest.raises(ModelError, match=message):
+        project_from_doc(doc)

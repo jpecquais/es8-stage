@@ -13,7 +13,7 @@ import re
 from datetime import UTC, datetime
 
 from ..codec import patch_label
-from .compile import pc_map_entries, setlist_steps, snapshot_programs
+from .compile import backup_pcs, pc_map_entries, setlist_steps, snapshot_programs
 from .schema import Project, Rig, device_param, loop_name, program_label, resolve_program
 
 SHOW_SCHEMA = "es8ctl.show/1"
@@ -132,6 +132,7 @@ def export_show(project: Project, exported: str | None = None) -> dict:
         for i, step in enumerate(steps):
             firsts.setdefault(step.song, i)
         entries = pc_map_entries(steps)
+        pcs = backup_pcs(steps)
         name = setlist.get("name") or f"Setlist {midi_bank}"
         setlists.append({
             "id": path.stem if path is not None else _slug(name),
@@ -145,6 +146,8 @@ def export_show(project: Project, exported: str | None = None) -> dict:
             ],
             "steps": [
                 {"song": s.song, "snapshot": s.snapshot, "patch": s.patch, "label": patch_label(s.patch)}
+                | ({"backup": {"rig": s.backup[0].doc["name"], "snapshot": s.backup[1], "pc": pcs[s.backup[2]],
+                               "label": patch_label(s.backup[2])}} if s.backup else {})
                 for s in steps
             ],
         })

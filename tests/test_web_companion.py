@@ -29,6 +29,7 @@ console.log(JSON.stringify({
   bank: { n: v.bank.bank, current: v.bank.patches.filter((p) => p.current).map((p) => p.label),
           names: v.bank.patches.map((p) => p.snapshot) },
   programs: v.programs.map((p) => p.pc),
+  played: [S.played(v.step, 5, false), S.played(v.step, 5, true), S.played(S.view(show, at(0)).step, 0, true)],
   boundary: S.view(show, at(7)).nextIsNewSong,
   next: S.move(show, at(5), "next"), prev: S.move(show, at(5), "prev"),
   atEnd: S.move(show, at(12), "next"), atStart: S.move(show, at(0), "prev"),
@@ -81,3 +82,7 @@ def test_companion_logic():
     assert r["debounce"] == [True, False, True, True]
     assert r["bank"] == {"n": 12, "current": ["12-2"], "names": ["Verse", "Chorus", "Bridge", "Solo", None, None, None, None]}
     assert r["programs"] == [12, 5]
+    normal, backup, none = r["played"]
+    assert normal == {"pc": 5, "label": "12-2", "snapshot": "Chorus", "backup": False}
+    assert backup == {"pc": 126, "label": "40-2", "snapshot": "Lead", "rig": "GP50 backup", "backup": True}
+    assert none["pc"] == 0 and none["backup"] is False  # pas sans secours : le son normal

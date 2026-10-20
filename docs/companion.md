@@ -66,7 +66,8 @@ Autonome : pas de chemin ni de référence à résoudre.
       "steps": [
         {"song": 0, "snapshot": "Intro", "patch": 88, "label": "11-1"},
         {"song": 0, "snapshot": "Swell", "patch": 89, "label": "11-2"},
-        {"song": 1, "snapshot": "Verse", "patch": 96, "label": "12-1"}
+        {"song": 1, "snapshot": "Verse", "patch": 96, "label": "12-1",
+         "backup": {"rig": "GP50 backup", "snapshot": "Crunch", "pc": 127, "label": "40-1"}}
       ]
     }
   ],
@@ -109,6 +110,10 @@ Autonome : pas de chemin ni de référence à résoudre.
 - `songs[].name` : nom du track ; un morceau écrit sur place dans la
   setlist prend son `name` s'il en a un, sinon le nom du rig.
 - `input_preset` : facultatif (voir « L'ES-8 comme contrôleur »).
+- `steps[].backup` : facultatif. Le patch de secours du pas et son PC dans
+  la même banque MIDI (en haut de la `pc_map`). L'action `backup` de la
+  Companion (bouton, switch) bascule : chaque pas envoie alors le PC de son
+  secours, jusqu'au prochain appui ; un pas sans secours garde son son.
 - `rigs[].patches` : le patch de chaque snapshot (un rig occupe des patchs
   consécutifs, sur plusieurs banques au besoin). `snapshot_programs` :
   seulement les snapshots qui chargent d'autres programmes que le rig.
@@ -128,6 +133,7 @@ tourne-page, qui se présentent comme un clavier), l'écran.
 | `next_song` | premier pas du morceau suivant |
 | `prev_song` | premier pas du morceau précédent |
 | `song_start` | premier pas du morceau en cours |
+| `backup` | bascule le mode secours : chaque pas envoie le PC de son patch de secours, ou revient au son normal |
 
 L'écran ajoute « aller à » : un morceau dans la liste (son premier pas),
 ou un pas dans la vue Setlists.

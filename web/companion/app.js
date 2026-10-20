@@ -56,6 +56,7 @@ function App() {
   const [pos, setPos] = useState(boot.current.pos);
   const [bindings, setBindings] = useState(boot.current.bindings || S.presetBindings(boot.current.show));
   const [prefs, setPrefs] = useState({ ...DEFAULT_PREFS, ...boot.current.prefs });
+  const [backup, setBackup] = useState(!!boot.current.backup);
   const [screen, setScreen] = useState("stage");
   const [songsOpen, setSongsOpen] = useState(false);
   const [browse, setBrowse] = useState(null);
@@ -67,17 +68,18 @@ function App() {
 
   // Les callbacks MIDI et clavier sont posés une fois : ils lisent l'état ici.
   const live = useRef({});
-  live.current = { ...live.current, show, pos, bindings, prefs, learning };
+  live.current = { ...live.current, show, pos, bindings, prefs, learning, backup };
 
-  useEffect(() => saveStore({ show, pos, bindings, prefs }), [show, pos, bindings, prefs]);
+  useEffect(() => saveStore({ show, pos, bindings, prefs, backup }), [show, pos, bindings, prefs, backup]);
 
   const setPref = (patch) => setPrefs((p) => ({ ...p, ...patch }));
   const channel = () => live.current.prefs.channel || (live.current.show && live.current.show.es8 && live.current.show.es8.rx_channel) || 1;
 
   function sendStep(p) {
-    const bank = live.current.show.setlists[p.setlist].midi_bank;
-    const sent = !!transport && transport.send(S.stepMessages(channel(), bank, p.step));
-    setTraffic((t) => ({ ...t, out: sent ? `${bank ? `bank ${bank} · ` : ""}PC ${p.step}` : "not sent: no output" }));
+    const sl = live.current.show.setlists[p.setlist];
+    const play = S.played(sl.steps[p.step], p.step, live.current.backup);
+    const sent = !!transport && transport.send(S.stepMessages(channel(), sl.midi_bank, play.pc));
+    setTraffic((t) => ({ ...t, out: sent ? `${sl.midi_bank ? `bank ${sl.midi_bank} · ` : ""}PC ${play.pc}${play.backup ? " · backup" : ""}` : "not sent: no output" }));
   }
   function goTo(p, label) {
     live.current.pos = p;
@@ -89,6 +91,13 @@ function App() {
   function act(action, source) {
     const L = live.current;
     if (!L.show) return;
+    if (action === "backup") { // bascule : le pas en cours repart sur son secours, ou revient au son normal
+      live.current.backup = !L.backup;
+      setBackup(live.current.backup);
+      setTraffic((t) => ({ ...t, in: source, action: live.current.backup ? "Backup on" : "Backup off" }));
+      sendStep(L.pos);
+      return;
+    }
     const p = S.move(L.show, L.pos, action);
     setTraffic((t) => ({ ...t, in: source, action: S.actionLabel(action) + (p ? "" : " · end") }));
     if (!p) return;
@@ -216,7 +225,7 @@ function App() {
   }, []);
 
   const ctx = {
-    show, pos, prefs, setPref, bindings, setBindings, learning, setLearning, midi, ports, traffic, error,
+    show, pos, prefs, setPref, bindings, setBindings, learning, setLearning, midi, ports, traffic, error, backup,
     act, goTo, resend: () => { sendStep(live.current.pos); setTraffic((t) => ({ ...t, in: "screen", action: "Resend" })); },
     setScreen, songsOpen, setSongsOpen, browse, setBrowse, loadFile, loadDemo, channel: channel(),
   };
@@ -228,7 +237,7 @@ function App() {
 
 // ---------------------------------------------------------------- scène
 
-function StatusBar({ show, pos, midi, ports, traffic, channel, setScreen }) {
+function StatusBar({ show, pos, midi, ports, traffic, channel, setScreen, backup, act }) {
   const sl = show.setlists[pos.setlist];
   const ok = midi.status === "ok";
   return html`
@@ -244,13 +253,16 @@ function StatusBar({ show, pos, midi, ports, traffic, channel, setScreen }) {
         ${traffic.out && html` <span class="muted">out</span> <span class="amber">${traffic.out}</span>`}
       </span>
       <span class=${`dot only-small ${ok && ports.out ? "ok" : "bad"}`}></span>
+      <button class=${`chip backup-btn ${backup ? "on" : ""}`} aria-pressed=${backup} onClick=${() => act("backup", "screen")}
+        title="Switch every step to its backup patch, or back">Backup</button>
       <button class="icon-btn" aria-label="Settings" onClick=${() => setScreen("settings")}><${Icon} name="menu" /></button>
     </header>`;
 }
 
 function Stage(ctx) {
-  const { show, pos, act, resend, prefs, setPref, songsOpen, setSongsOpen } = ctx;
+  const { show, pos, act, resend, prefs, setPref, songsOpen, setSongsOpen, backup } = ctx;
   const v = S.view(show, pos);
+  const now = S.played(v.step, v.step.index, backup);
   const meta = (st) => `PC ${st.index} · ${st.label}`;
   return html`
     <div class=${`app stage-app ${prefs.panel ? "panel-open" : "panel-closed"}`}>
@@ -273,10 +285,10 @@ function Stage(ctx) {
               ${v.prev ? html`<span class="card-name">${v.prev.snapshot}</span><span class="mono meta">${meta(v.prev)}</span>`
                 : html`<span class="muted">Start of setlist</span>`}
             </div>
-            <button class="card now" onClick=${resend} title="Tap to send this step again">
-              <span class="eyebrow">Now</span>
-              <span class="card-name">${v.step.snapshot}</span>
-              <span class="mono meta">${meta(v.step)}</span>
+            <button class=${`card now ${backup ? "on-backup" : ""}`} onClick=${resend} title="Tap to send this step again">
+              <span class="eyebrow">${backup ? (now.backup ? `Backup · ${now.rig}` : "Backup · none for this step") : "Now"}</span>
+              <span class="card-name">${now.snapshot}</span>
+              <span class="mono meta">${backup && now.backup ? `PC ${now.pc} · ${now.label} · instead of ${v.step.snapshot}` : meta(v.step)}</span>
             </button>
             <div class="card next" aria-label="Next">
               <span class="eyebrow">Next</span>

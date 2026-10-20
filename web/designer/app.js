@@ -22,7 +22,7 @@ const CTL_FUNCTIONS = ["OFF", "MEM_M", "MUTE", "BANK_D", "BANK_U", "MEM_U", "MEM
 const PC_MODES = [["none", "No program change"], ["pc", "PC"], ["bank_msb_pc", "Bank MSB + PC"], ["bank_lsb_pc", "Bank LSB + PC"], ["bank_msb_lsb_pc", "Bank MSB + LSB + PC"]];
 const NAME_LEN = 16;
 // Actions de ES8 Companion : les paramètres d'un appareil `companion` portent ces noms (docs/companion.md).
-const COMPANION_ACTIONS = [["next", "Next step"], ["prev", "Previous step"], ["next_song", "Next song"], ["prev_song", "Previous song"], ["song_start", "Song start"]];
+const COMPANION_ACTIONS = [["next", "Next step"], ["prev", "Previous step"], ["next_song", "Next song"], ["prev_song", "Previous song"], ["song_start", "Song start"], ["backup", "Backup on / off"]];
 const PATCHES = 800;
 const MAX_ASSIGNS = 12;
 
@@ -609,6 +609,11 @@ function RigEditor({ s, doc, rid, go }) {
     if (!confirm(`Delete the rig "${rig.name}"${tracks.length ? ` and its ${plural(tracks.length, "track")}` : ""}? The ES-8 is not changed.`)) return;
     project.update((d) => {
       delete d.rigs[rid];
+      Object.values(d.rigs).forEach((r) => {
+        if (r.backup !== rid) return;
+        delete r.backup;
+        r.snapshots.forEach((sn) => { delete sn.backup; });
+      });
       const gone = Object.keys(d.tracks || {}).filter((tid) => d.tracks[tid].rig === rid);
       gone.forEach((tid) => { delete d.tracks[tid]; });
       Object.values(d.setlists || {}).forEach((sl) => { sl.songs = sl.songs.filter((song) => !gone.includes(song.track)); });
@@ -632,6 +637,14 @@ function RigEditor({ s, doc, rid, go }) {
         <select value=${rig.surface || ""} onChange=${(e) => edit((r) => { r.surface = e.target.value || null; })}>
           <option value="">— leave switches as they are —</option>
           ${Object.entries(doc.surfaces || {}).map(([id, sf]) => html`<option value=${id}>${sf.name}</option>`)}
+        </select></label>
+      <label class="field" title="ES8 Companion's Backup button switches each snapshot to a snapshot of this rig">Backup rig
+        <select value=${rig.backup || ""} onChange=${(e) => edit((r) => {
+          if (e.target.value) r.backup = e.target.value; else delete r.backup;
+          r.snapshots.forEach((sn) => { delete sn.backup; });
+        })}>
+          <option value="">— none —</option>
+          ${sortedRigs(doc).filter(([id]) => id !== rid).map(([id, r]) => html`<option value=${id}>${r.name}</option>`)}
         </select></label>
       <span class="grow"></span>
       <button class="link danger" onClick=${remove}>Delete rig</button>
@@ -800,12 +813,18 @@ function SnapshotMatrix({ s, rig, rid, pb, edit, short }) {
     Object.values(d.tracks || {}).forEach((t) => {
       if (t.rig === rid) t.sequence = t.sequence.map((n) => (n === old ? name : n));
     });
+    Object.values(d.rigs).forEach((o) => {
+      if (o.backup === rid) o.snapshots.forEach((sn) => { if (sn.backup === old) sn.backup = name; });
+    });
   });
   const removeSnap = (i) => project.update((d) => {
     const r = d.rigs[rid];
     const [gone] = r.snapshots.splice(i, 1);
     Object.values(d.tracks || {}).forEach((t) => {
       if (t.rig === rid) t.sequence = t.sequence.filter((n) => n !== gone.name);
+    });
+    Object.values(d.rigs).forEach((o) => {
+      if (o.backup === rid) o.snapshots.forEach((sn) => { if (sn.backup === gone.name) delete sn.backup; });
     });
   });
   const setProgram = (i, did, value) => edit((r) => {
@@ -814,6 +833,8 @@ function SnapshotMatrix({ s, rig, rid, pb, edit, short }) {
     if (value === undefined) delete sn.programs[did]; else sn.programs[did] = value;
     if (!Object.keys(sn.programs).length) delete sn.programs;
   });
+  const backupRig = rig.backup ? (project.doc.rigs || {})[rig.backup] : null;
+  const setBackup = (i, name) => edit((r) => { if (name) r.snapshots[i].backup = name; else delete r.snapshots[i].backup; });
   const pcDevices = Object.entries(pb.devices || {}).filter(([did, d]) => d.program_change !== "none" && !d.companion && usesDevice(rig, pb, did));
   const addSnap = () => edit((r) => {
     const last = r.snapshots[r.snapshots.length - 1] || { loops: [], params: {} };
@@ -847,6 +868,13 @@ function SnapshotMatrix({ s, rig, rid, pb, edit, short }) {
             <th class="add-snap"><button onClick=${addSnap} title="Add a snapshot">+</button></th>
           </tr></thead>
           <tbody>
+            ${backupRig ? html`<tr class="group"><td colspan=${cols + 2}>Backup · ${backupRig.name}</td></tr>
+              <tr><td class="rowh"><b>⇄</b>Backup snapshot</td>
+              ${rig.snapshots.map((sn, i) => html`<td class="prog-cell ${sn.backup ? "own" : ""}">
+                <select value=${sn.backup || ""} onChange=${(e) => setBackup(i, e.target.value)}>
+                  <option value="">${`First: ${backupRig.snapshots[0].name}`}</option>
+                  ${backupRig.snapshots.map((b, k) => html`<option value=${b.name}>${b.name} · ${patchOf(backupRig, k)}</option>`)}
+                </select></td>`)}<td></td></tr>` : null}
             ${pcDevices.length ? html`<tr class="group"><td colspan=${cols + 2}>Programs</td></tr>` : null}
             ${pcDevices.map(([did, d]) => html`<tr>
               <td class="rowh rp"><b>PC</b>${d.name}</td>

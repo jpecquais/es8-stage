@@ -41,7 +41,7 @@ PATCHES = 800
 MIDI_BANKS = 7  # banques MIDI de la pc_map
 SETLIST_STEPS = 128
 # Actions de ES8 Companion (docs/companion.md) : noms des paramètres d'un appareil `companion`.
-COMPANION_ACTIONS = ("next", "prev", "next_song", "prev_song", "song_start")
+COMPANION_ACTIONS = ("next", "prev", "next_song", "prev_song", "song_start", "backup")
 
 
 class ModelError(CodecError):
@@ -371,6 +371,14 @@ def check_rig(doc: dict, pedalboard: dict, where: str = "rig") -> dict:
                 problems.append(f"{at}.params: {ref!r} is not a <device>.<param> of the pedalboard.")
             elif value not in ("on", "off") and not _int(value, 0, 127):
                 problems.append(f"{at}.params.{ref}: on, off or 0-127.")
+    if "backup" in doc and not (isinstance(doc["backup"], str) and doc["backup"]):
+        problems.append('"backup": expected the backup rig (path, or id in a project).')
+    for i, snap in enumerate(snapshots):
+        if isinstance(snap, dict) and "backup" in snap:
+            if not isinstance(snap["backup"], str):
+                problems.append(f"snapshots[{i}].backup: expected a snapshot name of the backup rig.")
+            elif "backup" not in doc:
+                problems.append(f"snapshots[{i}].backup: the rig has no backup rig.")
     _rig_devices(doc, pedalboard, problems)
     if problems:
         raise ModelError(where, problems)
@@ -502,6 +510,31 @@ class Project:
                 ])
         self.rigs[rig.start] = rig
 
+    def backup_for(self, rig: Rig, snapshot: str) -> tuple[Rig, str] | None:
+        """Secours d'un snapshot : (rig de secours, snapshot) ; le premier snapshot sans lien propre."""
+        if not rig.doc.get("backup"):
+            return None
+        backup = self.rig_for(rig.doc["backup"], rig.path)
+        snap = next(s for s in rig.doc["snapshots"] if s["name"] == snapshot)
+        return backup, snap.get("backup") or backup.doc["snapshots"][0]["name"]
+
+    def check_backups(self) -> None:
+        """Chaque rig de secours existe, n'est pas le rig lui-même, et contient les snapshots désignés."""
+        for rig in self.rigs.values():
+            ref = rig.doc.get("backup")
+            if not ref:
+                continue
+            where = f"rig {rig.doc['name']!r}"
+            backup = self.rig_for(ref, rig.path)
+            if backup is None:
+                raise ModelError(where, [f"backup: unknown rig {ref!r}."])
+            if backup is rig:
+                raise ModelError(where, ["backup: a rig cannot be its own backup."])
+            names = [s["name"] for s in backup.doc["snapshots"]]
+            missing = [s["backup"] for s in rig.doc["snapshots"] if s.get("backup") and s["backup"] not in names]
+            if missing:
+                raise ModelError(where, [f"backup: rig {backup.doc['name']!r} has no snapshot {m!r}." for m in missing])
+
     def rig_for(self, ref: str, from_path: Path | None) -> Rig | None:
         if self.rig_ids is not None:
             return self.rig_ids.get(ref)
@@ -565,6 +598,7 @@ def load_project(path: Path) -> Project:
             raise ModelError(str(path), [f"setlists.{key}: MIDI bank must be 0-{MIDI_BANKS - 1}."])
         setlist_path = path.parent / rel
         project.setlists[int(key)] = (setlist_path, check_setlist(read_json(setlist_path), rel))
+    project.check_backups()
     return project
 
 
@@ -604,6 +638,7 @@ def project_from_doc(doc: dict, where: str = "project") -> Project:
         if bank in project.setlists:
             raise ModelError(f"setlist {lid!r}", [f"MIDI bank {bank} is already used by another setlist."])
         project.setlists[bank] = (None, setlist)
+    project.check_backups()
     return project
 
 
