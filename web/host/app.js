@@ -138,7 +138,7 @@ function Job({ job }) {
   const what = { backup: "Backing up the ES-8", restore: "Restoring the ES-8" }[job.kind] || job.kind;
   const phase = { start: "starting", read: "reading", send: "writing", resend: "writing again" }[job.phase] || job.phase;
   if (!job.done) {
-    return html`<div class="job"><b>${what}</b> · ${phase} ${job.total ? `${job.n}/${job.total}` : ""}
+    return html`<div class="job"><span><b>${what}</b> · ${phase} ${job.total ? `${job.n}/${job.total}` : ""}</span>
       <progress max=${job.total || 1} value=${job.n}></progress></div>`;
   }
   if (job.error) return html`<p class="small bad">${what} failed: ${job.error}</p>`;
