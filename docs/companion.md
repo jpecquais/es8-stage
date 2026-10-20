@@ -254,6 +254,9 @@ Voir la maquette.
 - `web/companion/`, site statique. Pas de Pyodide. Web MIDI sans SysEx.
   Transport isolé (`ports()`, `use(in, out)`, `send`, `onMessage`,
   `onPortsChange`).
+- Show courant du serveur : `GET/POST /stage/show.json` de `es8ctl web`
+  (fichier `~/.local/share/es8ctl/show.json`) ; la Companion le prend à
+  l'ouverture et le suit, le Designer (Show) et « Load a show » l'y déposent.
 - PWA (hors ligne), Screen Wake Lock, `localStorage` (show, position,
   ports, table d'entrée, préférences).
 - **Hôte de scène : un Raspberry Pi** (3B+ ou Zero 2 W) avec un écran ou une

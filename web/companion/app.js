@@ -9,6 +9,10 @@ import { openWebMidi } from "./midi.js";
 
 const STORE_KEY = "es8companion";
 const INBOX = "es8companion/incoming"; // déposé par ES8 Designer (« Show »)
+// Show courant du serveur (es8ctl web, le Pi) : pris à l'ouverture et suivi ; un show chargé ici y est déposé.
+// Sans serveur (site statique), ces requêtes échouent en silence et l'app marche comme avant.
+const SERVER_SHOW = "../stage/show.json";
+const SERVER_POLL_MS = 5000;
 // outName / inName : null = jamais choisi (choix automatique), "" = aucun port.
 const DEFAULT_PREFS = {
   outName: null, inName: null, channel: 0, keyboard: true, wake: true,
@@ -213,12 +217,16 @@ function App() {
     };
   }, [prefs.wake]);
 
-  function loadShow(doc, source) {
+  function loadShow(doc, source, { share = true } = {}) {
     const problems = S.checkShow(doc);
     if (problems.length) { setError(`${source}: ${problems.slice(0, 3).join(" ")}`); return; }
     setError("");
     setShow(doc);
+    live.current.show = doc;
     setPos(S.startPosition(doc)); // rien n'est envoyé avant la première action
+    if (share && !doc.demo) {
+      fetch(SERVER_SHOW, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(doc) }).catch(() => {});
+    }
     if (!live.current.prefs.bindingsCustom) setBindings(S.presetBindings(doc));
     setBrowse(null);
     setScreen("stage");
@@ -242,6 +250,32 @@ function App() {
       if (v === "songs") setSongsOpen(true);
       else if (v === "setlists" || v === "settings") setScreen(v);
     });
+  }, []);
+
+  // Show courant du serveur : à l'ouverture, au retour sur la page et toutes les 5 s. Un autre show
+  // (autre date d'export) remplace le show affiché ; la position est gardée si elle existe encore.
+  useEffect(() => {
+    let stopped = false;
+    const sync = async () => {
+      let doc;
+      try {
+        const r = await fetch(SERVER_SHOW, { cache: "no-store" });
+        if (!r.ok) return;
+        doc = await r.json();
+      } catch { return; }
+      const cur = live.current.show;
+      if (stopped || S.checkShow(doc).length || (cur && !cur.demo && cur.exported === doc.exported)) return;
+      if (cur && cur.demo && new URLSearchParams(location.search).has("demo")) return; // ?demo : on reste sur la démo
+      setShow(doc);
+      live.current.show = doc;
+      setPos((p) => S.validPosition(doc, p));
+      if (!live.current.prefs.bindingsCustom) setBindings(S.presetBindings(doc));
+    };
+    sync();
+    const timer = setInterval(sync, SERVER_POLL_MS);
+    const onVisible = () => { if (document.visibilityState === "visible") sync(); };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => { stopped = true; clearInterval(timer); document.removeEventListener("visibilitychange", onVisible); };
   }, []);
 
   // Show déposé par ES8 Designer dans ce navigateur (même origine) : pris au démarrage ou à l'arrivée.

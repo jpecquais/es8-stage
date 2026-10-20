@@ -162,7 +162,10 @@ function exportShow(doc) {
   if (r.error) { toast(`No show: ${(r.problems || [r.error]).join(" ")}`, "error"); return; }
   E.download(JSON.stringify(r.show, null, 2), `${slug(doc.name, [])}.show.json`, "application/json");
   try { localStorage.setItem(COMPANION_INBOX, JSON.stringify(r.show)); } catch { /* stockage plein : le fichier suffit */ }
-  toast("Show exported. ES8 Companion in this browser opens it by itself.");
+  // Le serveur (es8ctl web, le Pi) le garde comme show courant : toutes les Companion ouvertes le prennent.
+  fetch("../stage/show.json", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(r.show) })
+    .then((res) => toast(res.ok ? "Show exported and sent to the server: every open ES8 Companion takes it." : "Show exported (file)."))
+    .catch(() => toast("Show exported. ES8 Companion in this browser opens it by itself."));
 }
 
 /** Les morceaux écrits dans une setlist ({rig, sequence}) deviennent des tracks ; les rigs v1 (une banque) passent en v2. */
