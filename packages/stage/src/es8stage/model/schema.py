@@ -42,37 +42,40 @@ MIDI_BANKS = 7  # banques MIDI de la pc_map
 SETLIST_STEPS = 128
 # Actions de ES8 Companion (docs/companion.md) : noms des paramètres d'un appareil `companion`.
 COMPANION_ACTIONS = ("next", "prev", "next_song", "prev_song", "song_start", "backup")
-# Ce qu'envoie un switch au rôle `companion` : un CC par action, sur un canal réservé (réglable par projet).
-DEFAULT_COMPANION = {"channel": 16, "cc": {action: 80 + i for i, action in enumerate(COMPANION_ACTIONS)}}
+# Switches dont la Companion tient la logique (docs/companion.md, « Les switches de l'ES-8 ») :
+# chacun envoie un CC fixe, first_cc + son rang dans SWITCHES, sur le canal de la Companion.
+COMPANION_ROLES = ("param", "companion")
+DEFAULT_COMPANION = {"channel": 16, "first_cc": 80}
 
 
 def companion_settings(doc, pedalboard: dict, where: str = "companion") -> dict:
-    """Réglages `companion` d'un projet (canal, CC par action), complétés par les valeurs par défaut.
+    """Réglages `companion` d'un projet (canal, premier CC), complétés par les valeurs par défaut.
 
-    Le canal ne doit être celui d'aucun appareil MIDI : il recevrait les CC de la Companion.
+    Le canal ne doit être celui d'aucun appareil MIDI : il recevrait les CC des switches.
+    L'ancien format (un CC par action, `cc`) est ignoré : le CC dépend maintenant du switch.
     """
     if doc is None:
         doc = {}
-    problems: list[str] = []
     if not isinstance(doc, dict):
-        raise ModelError(where, ['expected {"channel": 1-16, "cc": {"next": 80, …}}.'])
+        raise ModelError(where, ['expected {"channel": 1-16, "first_cc": 0-112}.'])
+    problems: list[str] = []
     channel = doc.get("channel", DEFAULT_COMPANION["channel"])
-    cc = {**DEFAULT_COMPANION["cc"], **(doc.get("cc") or {})}
+    first_cc = doc.get("first_cc", DEFAULT_COMPANION["first_cc"])
     if not _int(channel, 1, 16):
         problems.append("channel: expected 1-16.")
-    for action, number in cc.items():
-        if action not in COMPANION_ACTIONS:
-            problems.append(f"cc.{action}: unknown action ({', '.join(COMPANION_ACTIONS)}).")
-        elif not _int(number, 0, 127):
-            problems.append(f"cc.{action}: expected 0-127.")
-    if len(set(cc.values())) != len(cc):
-        problems.append("cc: two actions share a CC number.")
-    for dev_id, dev in (pedalboard.get("devices") or {}).items():
+    if not _int(first_cc, 0, 127 - (len(SWITCHES) - 1)):
+        problems.append(f"first_cc: expected 0-{127 - (len(SWITCHES) - 1)} ({len(SWITCHES)} switches follow it).")
+    for dev in (pedalboard.get("devices") or {}).values():
         if dev.get("channel") == channel and not dev.get("companion"):
             problems.append(f"channel {channel} is used by {dev['name']!r}: ES8 Companion needs a channel of its own.")
     if problems:
         raise ModelError(where, problems)
-    return {"channel": channel, "cc": cc}
+    return {"channel": channel, "first_cc": first_cc}
+
+
+def switch_cc(settings: dict, key: str) -> int:
+    """CC que le switch `key` envoie à la Companion."""
+    return settings["first_cc"] + SWITCHES.index(key)
 
 
 class ModelError(CodecError):

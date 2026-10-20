@@ -103,15 +103,20 @@ def test_compile_rig_fields(dump):
     assert first["midi_ctl1_cc_val"][:2] == [0, 10] and first["midi_ctl2_cc_val"][0] == 127
     # Chorus : drive on, verb 64, delay on.
     assert second["midi_ctl1_cc_val"][:2] == [127, 64] and second["midi_ctl2_cc_val"][0] == 127
-    # Surface : assigns 1-2, NUM8 en tap, NUM5 sur L2 en mode manuel.
+    # Surface : NUM1 et NUM4 (param) sont de simples boutons vers la Companion : assign momentané,
+    # CC 80 + rang du switch sur le canal 16, fonction OFF. NUM8 en tap, NUM5 sur L2 en mode manuel.
     assert first["assign_sw"][:3] == [1, 1, 0]
     assert first["assign_source"][:2] == [8, 11]  # NUM1, NUM4
-    assert first["assign_mode"][:2] == [1, 0]
+    assert first.get("assign_mode", [0, 0])[:2] == [0, 0]
     assert first["assign_target"][:2] == [22, 22]
-    assert first["assign_target_cc_ch"][:2] == [0, 1]
-    assert first["assign_target_cc_no"][:2] == [18, 21]
+    assert first["assign_target_cc_ch"][:2] == [15, 15]
+    assert first["assign_target_cc_no"][:2] == [80, 83]
+    assert first.get("assign_target_min", [0, 0])[:2] == [0, 0]
+    assert first.get("assign_target_max", [127, 127])[:2] == [127, 127]
+    assert first["ctl_func"][4] == 0 and first["ctl_func"][7] == 0  # NUM1, NUM4 : OFF
     assert first["ctl_func"][11] == 21
     assert result.changes["system"] == {"manual_number5": 2}
+    assert result.system_wanted["midi_setting_midi_out_mode"] == 1  # Thru (déjà le cas dans la fixture)
     assert len(result.changes["patches"]) == 2
 
 

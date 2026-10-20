@@ -13,8 +13,18 @@ import re
 from datetime import UTC, datetime
 
 from ..codec import patch_label
-from .compile import backup_pcs, pc_map_entries, setlist_steps, snapshot_programs
-from .schema import Project, Rig, device_param, loop_name, program_label, resolve_program
+from .compile import _value, backup_pcs, pc_map_entries, setlist_steps, snapshot_programs
+from .schema import (
+    COMPANION_ROLES,
+    SWITCHES,
+    Project,
+    Rig,
+    device_param,
+    loop_name,
+    program_label,
+    resolve_program,
+    switch_cc,
+)
 
 SHOW_SCHEMA = "es8ctl.show/1"
 COMPANION_LABELS = {"next": "Next", "prev": "Previous", "next_song": "Next song", "prev_song": "Previous song",
@@ -45,6 +55,9 @@ def _switch(pedalboard: dict, sw: dict, aliases: dict) -> dict:
         _, dev, param_id, param = device_param(pedalboard, sw["param"])
         out["mode"] = sw.get("mode", "toggle")
         out["target"] = f"{dev['name']} · {param.get('name', param_id)}"
+        # Ce que la Companion envoie quand le switch bascule (elle tient l'état).
+        out |= {"param": sw["param"], "channel": dev["channel"], "cc": param["cc"],
+                "on": param.get("on", 127), "off": param.get("off", 0)}
         label = param.get("name", param_id)
         if aliases.get(sw["param"]):
             return {"label": aliases[sw["param"]], **out}
@@ -99,26 +112,44 @@ def _rig(rig: Rig) -> dict:
     if overrides:
         out["snapshot_programs"] = overrides
     if rig.surface is not None:
+        switches = rig.surface.get("switches", {})
         out["surface"] = {
             "name": rig.surface.get("name", ""),
-            "switches": {key: _switch(pedalboard, sw, doc.get("aliases") or {})
-                         for key, sw in rig.surface.get("switches", {}).items()},
+            "switches": {key: _switch(pedalboard, sw, doc.get("aliases") or {}) for key, sw in switches.items()},
         }
+        refs = list(dict.fromkeys(sw["param"] for sw in switches.values() if sw["role"] == "param"))
+        if refs:
+            # État de départ de chaque paramètre piloté par un switch : ce que le patch envoie au rappel.
+            out["states"] = {
+                snap["name"]: {ref: _value(device_param(pedalboard, ref)[3], (snap.get("params") or {}).get(ref, "off"))
+                               for ref in refs}
+                for snap in doc["snapshots"]
+            }
     return out
 
 
+def _controls(rigs: list[Rig], companion: dict) -> dict | None:
+    """Canal et CC des switches de l'ES-8 dont la Companion tient la logique, dans les rigs du show."""
+    keys = [key for rig in rigs if rig.surface is not None
+            for key, sw in rig.surface.get("switches", {}).items() if sw["role"] in COMPANION_ROLES]
+    if not keys:
+        return None
+    ordered = [k for k in SWITCHES if k in keys]
+    return {"channel": companion["channel"], "switches": {k: switch_cc(companion, k) for k in ordered}}
+
+
 def _input_preset(rigs: list[Rig], companion: dict) -> dict | None:
-    """Switches de surface au rôle `companion` (ou, format ancien, qui pilotent un appareil `companion`) → table d'entrée."""
+    """Format ancien : switches qui pilotent un appareil `companion` → table d'entrée.
+
+    Les switches au rôle `companion` passent par `controls` : la Companion lit leur action dans le rig en cours.
+    """
     bindings: list[dict] = []
     sources: list[str] = []
     for rig in rigs:
         if rig.surface is None:
             continue
         for sw in rig.surface.get("switches", {}).values():
-            if sw["role"] == "companion":
-                binding = {"action": sw["action"], "type": "cc", "channel": companion["channel"],
-                           "number": companion["cc"][sw["action"]]}
-            elif sw["role"] == "param":
+            if sw["role"] == "param":
                 _, dev, action, param = device_param(rig.pedalboard, sw["param"])
                 if not dev.get("companion"):
                     continue
@@ -173,6 +204,9 @@ def export_show(project: Project, exported: str | None = None) -> dict:
         "setlists": setlists,
         "rigs": {rig_ids[start]: _rig(rig) for start, rig in sorted(used.items())},
     }
+    controls = _controls([rig for _, rig in sorted(used.items())], project.companion)
+    if controls:
+        show["controls"] = controls
     preset = _input_preset([rig for _, rig in sorted(used.items())], project.companion)
     if preset:
         show["input_preset"] = preset

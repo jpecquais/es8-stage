@@ -49,7 +49,12 @@ def test_show_from_setup_matches_the_pc_map(tmp_path):
     assert crunch["chain"] == [{"loop": "L2", "device": "Overdrive"}, {"loop": "L5", "device": "Fuzz"},
                                {"loop": "L7", "device": "Chorus"}]
     assert crunch["programs"][0] == {"device": "DAW", "program": "crunch", "pc": 12}
-    assert crunch["surface"]["switches"]["NUM1"] == {"label": "drive", "role": "param", "mode": "toggle", "target": "DAW · drive"}
+    assert crunch["surface"]["switches"]["NUM1"] == {
+        "label": "drive", "role": "param", "mode": "toggle", "target": "DAW · drive",
+        "param": "daw.drive", "channel": 1, "cc": 18, "on": 127, "off": 0,
+    }
+    # État de départ des paramètres de la surface : Intro drive off, Chorus drive on.
+    assert crunch["states"]["Intro"]["daw.drive"] == 0 and crunch["states"]["Chorus"]["daw.drive"] == 127
     assert crunch["surface"]["switches"]["NUM5"] == {"label": "Overdrive", "role": "loop", "target": "L2"}
     assert crunch["surface"]["switches"]["NUM8"] == {"label": "Tap", "role": "tap"}
     assert "surface" not in show["rigs"]["ambient"] and "input_preset" not in show
@@ -122,8 +127,9 @@ def test_web_show_export():
     assert json.loads(webapp.show_export(json.dumps(bad)))["error"] == "This project has no setlist."
 
 
-def test_companion_switch_role_sends_its_action_cc(tmp_path):
+def test_companion_switches_are_plain_buttons(tmp_path):
     from es8core.model import compile_rig
+    from es8core.model.compile import _CTL_SLOT
     from es8core.model.schema import companion_settings
 
     doc = project_doc()
@@ -134,35 +140,29 @@ def test_companion_switch_role_sends_its_action_cc(tmp_path):
     })
     doc["companion"] = {"channel": 15}
     project = project_from_doc(doc)
-    assert project.companion == {"channel": 15, "cc": {"next": 80, "prev": 81, "next_song": 82, "prev_song": 83,
-                                                       "song_start": 84, "backup": 85}}
+    assert project.companion == {"channel": 15, "first_cc": 80}
     show = export_show(project)
-    assert show["input_preset"]["bindings"] == [
-        {"action": "next", "type": "cc", "channel": 15, "number": 80},
-        {"action": "prev", "type": "cc", "channel": 15, "number": 81},
-        {"action": "backup", "type": "cc", "channel": 15, "number": 85},
-    ]
+    # Un CC par switch (80 + rang : NUM1 = 80, NUM4 = 83, MUTE = 89, BANK_D = 90, BANK_U = 91).
+    assert show["controls"] == {"channel": 15, "switches": {"NUM1": 80, "NUM4": 83, "MUTE": 89, "BANK_D": 90, "BANK_U": 91}}
     assert show["rigs"]["crunch"]["surface"]["switches"]["BANK_U"] == {"label": "Next", "role": "companion", "target": "next"}
+    assert "input_preset" not in show
     rig = project.rig_ids["crunch"]
     first = compile_rig(rig.pedalboard, rig.surface, rig.doc, load_dump(FIXTURE), project.companion).changes["patches"]["12-1"]
-    # Assigns 3-5 : BANK ▲ / BANK ▼ / MUTE → CC 80 / 81 / 85, canal 15, momentané ; BANK ▲▼ et MUTE ne font plus rien d'autre.
-    assert first["assign_target_cc_no"][2:5] == [80, 81, 85] and first["assign_target_cc_ch"][2:5] == [14, 14, 14]
-    assert first["assign_mode"][2:5] == [0, 0, 0]
-    from es8core.model.compile import _CTL_SLOT
-
+    # Assigns dans l'ordre de la surface : BANK_U, BANK_D, MUTE.
+    assert first["assign_target_cc_no"][2:5] == [91, 90, 89] and first["assign_target_cc_ch"][2:5] == [14, 14, 14]
     assert [first["ctl_func"][_CTL_SLOT[k]] for k in ("BANK_U", "BANK_D", "MUTE")] == [0, 0, 0]  # OFF
-    # Le canal de la Companion ne peut pas être celui d'un appareil.
+    # Le canal de la Companion ne peut être celui d'un appareil.
     doc["companion"] = {"channel": 2}
     with pytest.raises(ModelError, match="channel 2 is used by 'Reverb pedal'"):
         project_from_doc(doc)
-    assert companion_settings(None, PEDALBOARD)["channel"] == 16
+    assert companion_settings(None, PEDALBOARD) == {"channel": 16, "first_cc": 80}
 
 
 def test_rig_aliases_name_the_switches_in_the_show():
     doc = project_doc()
     doc["rigs"]["crunch"]["aliases"] = {"daw.drive": "Big Muff"}
     sw = export_show(project_from_doc(doc))["rigs"]["crunch"]["surface"]["switches"]["NUM1"]
-    assert sw == {"label": "Big Muff", "role": "param", "mode": "toggle", "target": "DAW · drive"}
+    assert sw["label"] == "Big Muff" and sw["role"] == "param" and sw["cc"] == 18
     doc["rigs"]["crunch"]["aliases"] = {"daw.nope": "x"}
     with pytest.raises(ModelError, match="aliases: 'daw.nope'"):
         project_from_doc(doc)

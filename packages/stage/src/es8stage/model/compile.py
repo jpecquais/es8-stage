@@ -32,15 +32,18 @@ from .schema import (
     check_pedalboard,
     check_rig,
     check_setlist,
+    COMPANION_ROLES,
     DEFAULT_COMPANION,
     check_surface,
     device_param,
     loop_name,
     resolve_program,
     rig_start,
+    switch_cc,
 )
 
 MIDI_SLOTS = 8
+MIDI_OUT_THRU = 1  # midi_setting_midi_out_mode : 0 = Out, 1 = Thru
 ASSIGNS = 12
 MIDI_TARGET = ASSIGN_TARGETS.index("MIDI")
 BPM = CTL_FUNCTIONS.index("BPM")
@@ -155,8 +158,10 @@ def _surface_fields(pedalboard: dict, surface: dict, patch: dict, companion: dic
     """Champs de patch (ctl_func, assigns) et système (manual_number) d'une surface.
 
     Une surface possède les 12 assigns : ceux qu'elle n'utilise pas sont coupés.
-    Un switch `companion` est un assign comme un `param` : momentané, il envoie
-    le CC de son action sur le canal de la Companion.
+    Un switch `param` ou `companion` est un simple bouton : un assign momentané
+    envoie son CC (127 / 0) sur le canal de la Companion, qui tient la logique ;
+    sa fonction propre est coupée (OFF), il ne rappelle plus de patch.
+    La prise MIDI OUT passe en Thru : les CC de la Companion la traversent.
     """
     system: dict = {}
     fields: dict = {name: list(patch[name]) for name in _ASSIGN_FIELDS}
@@ -165,14 +170,12 @@ def _surface_fields(pedalboard: dict, surface: dict, patch: dict, companion: dic
     slot = 0
     for key, sw in surface["switches"].items():
         role = sw["role"]
-        if role in ("param", "companion"):
-            if role == "param":
-                _, dev, _, param = device_param(pedalboard, sw["param"])
-                channel, cc, lo, hi, mode = dev["channel"], param["cc"], param.get("off", 0), param.get("on", 127), sw.get("mode", "toggle")
-            else:
-                channel, cc, lo, hi, mode = companion["channel"], companion["cc"][sw["action"]], 0, 127, "momentary"
+        if role in COMPANION_ROLES:
+            channel, cc, lo, hi, mode = companion["channel"], switch_cc(companion, key), 0, 127, "momentary"
+            system["midi_setting_midi_out_mode"] = MIDI_OUT_THRU
+            fields["ctl_func"][_CTL_SLOT[key]] = CTL_FUNCTIONS.index("OFF")
             if slot >= ASSIGNS:
-                raise ModelError("surface", [f"more than {ASSIGNS} param switches: the ES-8 has {ASSIGNS} assigns."])
+                raise ModelError("surface", [f"more than {ASSIGNS} MIDI switches: the ES-8 has {ASSIGNS} assigns per patch."])
             fields["assign_sw"][slot] = 1
             for name, value in (
                 ("assign_source", _ASSIGN_SOURCE[key]),
@@ -187,10 +190,10 @@ def _surface_fields(pedalboard: dict, surface: dict, patch: dict, companion: dic
             ):
                 fields[name][slot] = value
             slot += 1
+        if role in COMPANION_ROLES:
+            continue
         if key not in _DEFAULT_FUNC:  # switches de mode et CTL IN : pas de manual_number
-            if role == "companion":  # BANK ▲ ne doit pas aussi changer de banque : la Companion choisit le patch
-                fields["ctl_func"][_CTL_SLOT[key]] = CTL_FUNCTIONS.index("OFF")
-            elif role == "tap":
+            if role == "tap":
                 fields["ctl_func"][_CTL_SLOT[key]] = BPM
             elif role == "es8":
                 fields["ctl_func"][_CTL_SLOT[key]] = CTL_FUNCTIONS.index(sw["function"].upper())
@@ -199,8 +202,6 @@ def _surface_fields(pedalboard: dict, surface: dict, patch: dict, companion: dic
         if role == "loop":
             fields["ctl_func"][_CTL_SLOT[key]] = _DEFAULT_FUNC[key]
             system[number] = LOOPS.index(loop_name(sw["loop"])) + 1
-        elif role in ("param", "companion"):
-            fields["ctl_func"][_CTL_SLOT[key]] = _DEFAULT_FUNC[key]
         elif role == "tap":
             fields["ctl_func"][_CTL_SLOT[key]] = BPM
         else:
