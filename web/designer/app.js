@@ -1404,6 +1404,9 @@ function PedalboardTab({ s, doc, preview }) {
 function DeviceCard({ did, d, view, edit }) {
   const ed = (fn) => edit((p) => fn(p.devices[did], p));
   const midi = d.midi;
+  const mode = midi ? midi.program_change || "pc" : "pc";
+  const num = (v, lo, hi) => Math.max(lo, Math.min(hi, Number(v) || 0));
+  const loops = d.loops || [];
   const toggleLoop = (l) => ed((dev) => {
     dev.loops = dev.loops || [];
     dev.loops = dev.loops.includes(l) ? dev.loops.filter((x) => x !== l) : [...dev.loops, l].sort((a, b) => LOOPS.indexOf(a) - LOOPS.indexOf(b));
