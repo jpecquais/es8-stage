@@ -15,7 +15,7 @@ const DEFAULT_PREFS = {
   switchView: "manual", panel: true, bindingsCustom: false,
 };
 const NUMS = ["NUM1", "NUM2", "NUM3", "NUM4", "NUM5", "NUM6", "NUM7", "NUM8"];
-const ROLE_TAG = { loop: (sw) => sw.target || "LOOP", param: (sw) => (sw.mode === "momentary" ? "MOM" : "CC"), tap: () => "TAP", es8: () => "ES-8", companion: () => "APP" };
+const ROLE_TAG = { loop: (sw) => sw.target || "LOOP", param: (sw) => (sw.mode === "momentary" ? "MOM" : "CC"), tap: () => "TAP", es8: () => "ES-8", companion: (sw) => sw.target.replace("_", " ").toUpperCase() };
 
 let transport = null;
 
@@ -57,6 +57,7 @@ function App() {
   const [bindings, setBindings] = useState(boot.current.bindings || S.presetBindings(boot.current.show));
   const [prefs, setPrefs] = useState({ ...DEFAULT_PREFS, ...boot.current.prefs });
   const [backup, setBackup] = useState(!!boot.current.backup);
+  const [states, setStates] = useState({}); // paramètres pilotés par les switches de l'ES-8, pour le pas en cours
   const [screen, setScreen] = useState("stage");
   const [songsOpen, setSongsOpen] = useState(false);
   const [browse, setBrowse] = useState(null);
@@ -68,7 +69,14 @@ function App() {
 
   // Les callbacks MIDI et clavier sont posés une fois : ils lisent l'état ici.
   const live = useRef({});
-  live.current = { ...live.current, show, pos, bindings, prefs, learning, backup };
+  live.current = { ...live.current, show, pos, bindings, prefs, learning, backup, states };
+
+  // À chaque pas, l'état repart de celui du snapshot (le patch vient d'envoyer ces valeurs).
+  useEffect(() => {
+    const next = show && pos ? S.startStates(show, pos) : {};
+    live.current.states = next;
+    setStates(next);
+  }, [show, pos && pos.setlist, pos && pos.step]);
 
   useEffect(() => saveStore({ show, pos, bindings, prefs, backup }), [show, pos, bindings, prefs, backup]);
 
@@ -105,6 +113,21 @@ function App() {
     setPos(p);
     sendStep(p);
   }
+  /** Un switch de l'ES-8 : son rôle dans le rig en cours (action, ou paramètre envoyé à sa machine). */
+  function handleSwitch(sw) {
+    const L = live.current;
+    if (!L.show || !L.pos || L.learning) return;
+    if (sw.press && !debounce({ type: "cc", channel: 0, number: sw.key }, performance.now())) return;
+    const r = S.pressSwitch(L.show, L.pos, sw.key, sw.press, L.states || {});
+    if (!r) return;
+    if (r.action) { act(r.action, sw.key); return; }
+    live.current.states = r.states;
+    setStates(r.states);
+    const sent = !!transport && transport.send(r.message);
+    setTraffic({ in: sw.key, action: `${r.label} ${r.on ? "on" : "off"}`,
+      out: sent ? `ch ${(r.message[0] & 0x0f) + 1} · CC${r.message[1]} = ${r.message[2]}` : "not sent: no output" });
+  }
+
   function handleInput(event, source) {
     if (!event.press) return;
     const L = live.current;
@@ -129,6 +152,8 @@ function App() {
       if (cancelled) return;
       transport = t;
       t.onMessage((data) => {
+        const sw = S.switchFromMidi(live.current.show, data);
+        if (sw) { handleSwitch(sw); return; }
         const event = S.eventFromMidi(data);
         if (event) handleInput(event, S.describeBinding(event));
       });
@@ -225,7 +250,7 @@ function App() {
   }, []);
 
   const ctx = {
-    show, pos, prefs, setPref, bindings, setBindings, learning, setLearning, midi, ports, traffic, error, backup,
+    show, pos, prefs, setPref, bindings, setBindings, learning, setLearning, midi, ports, traffic, error, backup, states,
     act, goTo, resend: () => { sendStep(live.current.pos); setTraffic((t) => ({ ...t, in: "screen", action: "Resend" })); },
     setScreen, songsOpen, setSongsOpen, browse, setBrowse, loadFile, loadDemo, channel: channel(),
   };
@@ -304,7 +329,7 @@ function Stage(ctx) {
         <button class="nav nav-prev" onClick=${() => act("prev", "screen")}><${Icon} name="left" size=${30} /><span>Previous</span></button>
         <button class="nav nav-next" onClick=${() => act("next", "screen")}><span>Next</span><${Icon} name="right" size=${30} /></button>
         ${prefs.panel
-          ? html`<${Panel} v=${v} prefs=${prefs} setPref=${setPref} />`
+          ? html`<${Panel} v=${v} prefs=${prefs} setPref=${setPref} states=${ctx.states} />`
           : html`<button class="rail" aria-label="Show side panel" aria-expanded="false" onClick=${() => setPref({ panel: true })}>
               <${Icon} name="left" /><span>Switches · chain · programs</span></button>`}
       </div>
@@ -312,10 +337,20 @@ function Stage(ctx) {
     </div>`;
 }
 
-function Panel({ v, prefs, setPref }) {
+const SWITCH_NAME = { MEM_M: "MEM", BANK_D: "BANK▼", BANK_U: "BANK▲", CTL_IN_1: "CTL1", CTL_IN_2: "CTL2", CTL_IN_3: "CTL3", CTL_IN_4: "CTL4" };
+
+/** Un switch de la surface : son nom dans ce rig, son rôle, et l'état de son paramètre (à la place des LED de l'ES-8). */
+function Switch({ k, sw, states }) {
+  if (!sw) return html`<div class="sw unused"><span class="sw-top mono">${SWITCH_NAME[k] || k}</span><span class="sw-label">—</span></div>`;
+  const on = S.switchIsOn(sw, states);
+  return html`<div class=${`sw ${on ? "on" : ""}`} aria-pressed=${sw.role === "param" ? on : undefined}>
+    <span class="sw-top mono"><span>${SWITCH_NAME[k] || k}</span><span>${(ROLE_TAG[sw.role] || (() => ""))(sw)}</span></span>
+    <span class="sw-label">${sw.label}</span></div>`;
+}
+
+function Panel({ v, setPref, states }) {
   const surface = v.rig.surface;
-  const manual = prefs.switchView === "manual" && surface;
-  const extra = surface ? Object.entries(surface.switches).filter(([k]) => !NUMS.includes(k)) : [];
+  const extra = surface ? Object.keys(surface.switches).filter((k) => !NUMS.includes(k)) : [];
   return html`
     <aside class="panel">
       <button class="ghost" aria-expanded="true" onClick=${() => setPref({ panel: false })}>Hide panel <${Icon} name="right" size=${18} /></button>
@@ -326,30 +361,12 @@ function Panel({ v, prefs, setPref }) {
           : html`<span class="muted">End of the setlist</span>`}
       </section>
       <section class="box">
-        <div class="box-head">
-          <span class="eyebrow">ES-8 switches</span>
-          <div class="seg" role="group" aria-label="Switch view">
-            <button aria-pressed=${prefs.switchView === "manual"} onClick=${() => setPref({ switchView: "manual" })}>Manual</button>
-            <button aria-pressed=${prefs.switchView === "patch"} onClick=${() => setPref({ switchView: "patch" })}>Patch</button>
-          </div>
-        </div>
-        <div class="switches">
-          ${NUMS.map((num, k) => {
-            if (!manual) {
-              const p = v.bank.patches[k];
-              return html`<div class=${`sw ${p.current ? "current" : p.snapshot ? "" : "unused"}`}>
-                <span class="sw-top mono"><span>${num}</span><span>${p.label}</span></span><span class="sw-label">${p.snapshot || "—"}</span></div>`;
-            }
-            const sw = surface.switches[num];
-            return sw
-              ? html`<div class="sw"><span class="sw-top mono"><span>${num}</span><span>${(ROLE_TAG[sw.role] || (() => ""))(sw)}</span></span>
-                  <span class="sw-label">${sw.label}</span></div>`
-              : html`<div class="sw unused"><span class="sw-top mono">${num}</span><span class="sw-label">—</span></div>`;
-          })}
-        </div>
-        ${manual && extra.length > 0 && html`<p class="muted small">${extra.map(([k, sw]) => `${k}: ${sw.label}`).join(" · ")}</p>`}
-        <span class="muted small">${manual ? `Surface “${surface.name}” · manual mode` : `Bank ${v.bank.bank} · NUM1–8 recall its patches`}</span>
-        ${prefs.switchView === "manual" && !surface && html`<span class="muted small">This rig has no surface.</span>`}
+        <span class="eyebrow">ES-8 switches</span>
+        ${surface
+          ? html`<div class="switches">${NUMS.map((k) => html`<${Switch} k=${k} sw=${surface.switches[k]} states=${states || {}} />`)}</div>
+            ${extra.length > 0 && html`<div class="switches extra">${extra.map((k) => html`<${Switch} k=${k} sw=${surface.switches[k]} states=${states || {}} />`)}</div>`}
+            <span class="muted small">Surface “${surface.name}” · lit = on</span>`
+          : html`<span class="muted small">This rig has no surface.</span>`}
       </section>
       <section class="box">
         <span class="eyebrow">Chain · input to output</span>
@@ -520,12 +537,6 @@ function Settings(ctx) {
           <h2 class="eyebrow">Screen</h2>
           <label class="check"><input type="checkbox" checked=${prefs.wake} onChange=${(e) => setPref({ wake: e.target.checked })} />
             Keep the screen awake</label>
-          <label class="field">Switches shown by default
-            <select value=${prefs.switchView} onChange=${(e) => setPref({ switchView: e.target.value })}>
-              <option value="manual">Manual mode (surface)</option>
-              <option value="patch">Patch mode (snapshots)</option>
-            </select>
-          </label>
         </section>
       </div>
     </div>`;

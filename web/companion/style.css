@@ -14,6 +14,7 @@
   --on-now: #1a1200;
   --now-soft: #2a2310;
   --next: #62d0f0;
+  --next-soft: #12313a;
   --on-next: #06222b;
   --ok: #6fd08c;
   --bad: #ff8a5c;
@@ -192,6 +193,10 @@ code { font-family: var(--font-mono); font-size: 0.9em; }
   justify-content: space-between; min-width: 0; }
 .sw.unused { border-style: dashed; border-color: var(--line); color: var(--muted); }
 .sw.current { background: var(--now); border-color: var(--now); color: var(--on-now); }
+/* paramètre allumé : la LED que l'ES-8 ne sait pas afficher */
+.sw.on { background: var(--next-soft); border-color: var(--next); box-shadow: inset 0 0 0 1px var(--next); }
+.sw.on .sw-label { color: var(--next); }
+.switches.extra { margin-top: 6px; }
 .sw-top { display: flex; justify-content: space-between; gap: 4px; font-size: 10px; color: var(--muted); }
 .sw.current .sw-top { color: var(--on-now); }
 .sw-label { font-size: 14px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }

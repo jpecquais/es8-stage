@@ -136,6 +136,46 @@ export function played(step, index, backup) {
   return { pc: index, label: step.label, snapshot: step.snapshot, backup: false };
 }
 
+// ---------------------------------------------------------------- switches de l'ES-8 (docs/companion.md, v2)
+// Chaque switch envoie un CC fixe (show.controls) ; la Companion lit son rôle dans le rig du pas en cours,
+// tient l'état des paramètres et envoie leurs CC aux machines.
+
+/** Message MIDI → {key, press} si c'est le CC d'un switch de l'ES-8, sinon null. */
+export function switchFromMidi(show, data) {
+  const c = show && show.controls;
+  if (!c || !data || data.length < 3 || (data[0] & 0xf0) !== 0xb0 || (data[0] & 0x0f) + 1 !== c.channel) return null;
+  const key = Object.keys(c.switches).find((k) => c.switches[k] === data[1]);
+  return key ? { key, press: data[2] > 0 } : null;
+}
+
+/** État des paramètres de la surface à l'arrivée sur un pas : celui que le patch a envoyé. */
+export function startStates(show, pos) {
+  const v = view(show, pos);
+  return { ...((v.rig.states || {})[v.step.snapshot] || {}) };
+}
+
+/** Le paramètre d'un switch est-il allumé dans `states` ? */
+export const switchIsOn = (sw, states) => sw.role === "param" && (states[sw.param] ?? sw.off) !== sw.off;
+
+/**
+ * Appui (ou relâchement) d'un switch → ce qu'il faut faire, ou null :
+ * {action} pour une action de navigation ; {states, message, on} pour un paramètre
+ * (bascule à l'appui, ou momentané : on à l'appui, off au relâchement).
+ */
+export function pressSwitch(show, pos, key, press, states) {
+  const rig = view(show, pos).rig;
+  const sw = rig.surface && rig.surface.switches[key];
+  if (!sw) return null;
+  if (sw.role === "companion") return press ? { action: sw.target, label: sw.label } : null;
+  if (sw.role !== "param") return null;
+  let value;
+  if (sw.mode === "momentary") value = press ? sw.on : sw.off;
+  else if (!press) return null;
+  else value = switchIsOn(sw, states) ? sw.off : sw.on;
+  const ch = (sw.channel - 1) & 0x0f;
+  return { states: { ...states, [sw.param]: value }, message: [0xb0 | ch, sw.cc & 0x7f, value & 0x7f], on: value !== sw.off, label: sw.label };
+}
+
 export const stepMessages = (channel, midiBank, step) => {
   const ch = (channel - 1) & 0x0f;
   return [0xb0 | ch, 0, midiBank & 0x7f, 0xc0 | ch, step & 0x7f];

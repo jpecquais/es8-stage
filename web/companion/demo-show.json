@@ -60,10 +60,14 @@
         "switches": {
           "NUM1": {"label": "Delay", "role": "loop", "target": "L8"},
           "NUM2": {"label": "Mod", "role": "loop", "target": "L5"},
-          "NUM4": {"label": "Freeze", "role": "param", "mode": "momentary", "target": "Reverb pedal · Freeze"},
-          "NUM8": {"label": "Tap", "role": "tap"}
+          "NUM4": {"label": "Freeze", "role": "param", "mode": "momentary", "target": "Reverb pedal · Freeze",
+                   "param": "reverb.freeze", "channel": 2, "cc": 21, "on": 127, "off": 0},
+          "NUM8": {"label": "Tap", "role": "tap"},
+          "BANK_D": {"label": "Previous", "role": "companion", "target": "prev"},
+          "BANK_U": {"label": "Next", "role": "companion", "target": "next"}
         }
       },
+      "states": {"Intro": {"reverb.freeze": 0}, "Swell": {"reverb.freeze": 0}, "Pad": {"reverb.freeze": 0}},
       "chain": [{"loop": "L5", "device": "Modulation"}, {"loop": "L8", "device": "Delay pedal"}],
       "programs": [
         {"device": "DAW", "program": "Ambient Pad", "pc": 20},
@@ -77,15 +81,26 @@
       "surface": {
         "name": "Lead 4 + 4",
         "switches": {
-          "NUM1": {"label": "Drive", "role": "param", "mode": "toggle", "target": "DAW · Drive"},
-          "NUM2": {"label": "Delay", "role": "param", "mode": "toggle", "target": "DAW · Delay"},
+          "NUM1": {"label": "Drive", "role": "param", "mode": "toggle", "target": "DAW · Drive",
+                   "param": "daw.drive", "channel": 1, "cc": 18, "on": 127, "off": 0},
+          "NUM2": {"label": "Delay", "role": "param", "mode": "toggle", "target": "DAW · Delay",
+                   "param": "daw.delay", "channel": 1, "cc": 19, "on": 127, "off": 0},
           "NUM3": {"label": "Mod", "role": "loop", "target": "L5"},
-          "NUM4": {"label": "Freeze", "role": "param", "mode": "momentary", "target": "Reverb pedal · Freeze"},
+          "NUM4": {"label": "Freeze", "role": "param", "mode": "momentary", "target": "Reverb pedal · Freeze",
+                   "param": "reverb.freeze", "channel": 2, "cc": 21, "on": 127, "off": 0},
           "NUM5": {"label": "Overdrive", "role": "loop", "target": "L2"},
           "NUM6": {"label": "Fuzz", "role": "loop", "target": "L7"},
           "NUM7": {"label": "Mute", "role": "es8", "target": "MUTE"},
-          "NUM8": {"label": "Tap", "role": "tap"}
+          "NUM8": {"label": "Tap", "role": "tap"},
+          "BANK_D": {"label": "Previous", "role": "companion", "target": "prev"},
+          "BANK_U": {"label": "Next", "role": "companion", "target": "next"}
         }
+      },
+      "states": {
+        "Verse": {"daw.drive": 0, "daw.delay": 127, "reverb.freeze": 0},
+        "Chorus": {"daw.drive": 127, "daw.delay": 127, "reverb.freeze": 0},
+        "Bridge": {"daw.drive": 0, "daw.delay": 0, "reverb.freeze": 0},
+        "Solo": {"daw.drive": 127, "daw.delay": 0, "reverb.freeze": 0}
       },
       "chain": [
         {"loop": "L2", "device": "Overdrive"},
@@ -98,11 +113,12 @@
       ]
     }
   },
+  "controls": {"channel": 16, "switches": {"NUM1": 80, "NUM2": 81, "NUM4": 83, "BANK_D": 90, "BANK_U": 91}},
   "input_preset": {
-    "source": "surface Lead 4 + 4",
+    "source": "demo pedal",
     "bindings": [
-      {"action": "next", "type": "cc", "channel": 16, "number": 80},
-      {"action": "prev", "type": "cc", "channel": 16, "number": 81}
+      {"action": "next", "type": "cc", "channel": 15, "number": 80},
+      {"action": "prev", "type": "cc", "channel": 15, "number": 81}
     ]
   }
 }

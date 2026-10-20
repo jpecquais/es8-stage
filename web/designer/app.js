@@ -23,8 +23,13 @@ const PC_MODES = [["none", "No program change"], ["pc", "PC"], ["bank_msb_pc", "
 const NAME_LEN = 16;
 // Actions de ES8 Companion (docs/companion.md) : rôle `companion` d'un switch. Chacune envoie son CC sur le
 // canal de la Companion (réglage du projet `companion`, 16 et CC 80… par défaut).
-const COMPANION_DEFAULT = { channel: 16, cc: { next: 80, prev: 81, next_song: 82, prev_song: 83, song_start: 84, backup: 85 } };
-const companionOf = (doc) => ({ channel: (doc.companion || {}).channel || COMPANION_DEFAULT.channel, cc: { ...COMPANION_DEFAULT.cc, ...((doc.companion || {}).cc || {}) } });
+// Switches MIDI et Companion : chacun envoie un CC fixe (premier CC + rang du switch) à ES8 Companion,
+// qui tient la logique (docs/companion.md, « Les switches de l'ES-8 »).
+const SWITCH_ORDER = ["NUM1", "NUM2", "NUM3", "NUM4", "NUM5", "NUM6", "NUM7", "NUM8", "MEM_M", "MUTE", "BANK_D", "BANK_U", "CTL_IN_1", "CTL_IN_2", "CTL_IN_3", "CTL_IN_4"];
+const COMPANION_DEFAULT = { channel: 16, first_cc: 80 };
+const companionOf = (doc) => ({ channel: (doc.companion || {}).channel || COMPANION_DEFAULT.channel,
+  first_cc: (doc.companion || {}).first_cc ?? COMPANION_DEFAULT.first_cc });
+const switchCC = (c, key) => c.first_cc + SWITCH_ORDER.indexOf(key);
 const COMPANION_ACTIONS = [["next", "Next step"], ["prev", "Previous step"], ["next_song", "Next song"], ["prev_song", "Previous song"], ["song_start", "Song start"], ["backup", "Backup on / off"]];
 const PATCHES = 800;
 const MAX_ASSIGNS = 12;
@@ -161,6 +166,8 @@ function exportShow(doc) {
 
 /** Les morceaux écrits dans une setlist ({rig, sequence}) deviennent des tracks ; les rigs v1 (une banque) passent en v2. */
 function migrate(doc) {
+  // Ancien réglage : un CC par action. Le CC dépend maintenant du switch.
+  if (doc.companion && doc.companion.cc) doc.companion = { channel: doc.companion.channel || 16, first_cc: 80 };
   // Ancien format : la Companion déclarée comme un appareil MIDI `companion` → rôle `companion` des switches.
   // Un appareil MIDI nommé « … Companion » (déclaré à la main) est converti de la même façon.
   const actionOf = (pid, p) => {
@@ -179,7 +186,7 @@ function migrate(doc) {
     const params = dev.midi.params || {};
     const cc = {};
     Object.entries(params).forEach(([pid, p]) => { const a = actionOf(pid, p); if (a && cc[a] === undefined) cc[a] = p.cc; });
-    doc.companion = { channel: dev.midi.channel, cc };
+    doc.companion = { channel: dev.midi.channel, first_cc: COMPANION_DEFAULT.first_cc };
     Object.values(doc.surfaces || {}).forEach((sf) => Object.entries(sf.switches || {}).forEach(([key, sw]) => {
       if (sw.role !== "param" || !sw.param || sw.param.split(".")[0] !== did) return;
       const action = actionOf(sw.param.split(".")[1], params[sw.param.split(".")[1]]);
@@ -1321,7 +1328,8 @@ function SurfaceEditor({ doc, sid, go, usedBy }) {
       }}>Delete surface</button>
     </div>
     <section class="section">
-      <header><h3>Footswitches</h3><p>Manual mode. In patch mode, NUM 1–8 keep recalling the snapshots.</p></header>
+      <header><h3>Footswitches</h3><p>MIDI and Companion switches are plain buttons for ES8 Companion, which switches the parameters,
+        moves through the setlist and shows what is on. They no longer recall patches (memory mode).</p></header>
       <div class="board">${BOARD.flat().map((k) => html`<${SwitchBtn} k=${k} />`)}</div>
       <div class="jacks">${JACKS.map((k) => html`<${SwitchBtn} k=${k} jack />`)}</div>
       <div class="meter"><span class="bar">${Array.from({ length: MAX_ASSIGNS }, (_, i) => html`<i class=${i < assigns ? "used" : ""}></i>`)}</span>
@@ -1338,12 +1346,14 @@ function CompanionSettings({ doc }) {
   const set = (patch) => project.update((d) => { d.companion = { ...companionOf(d), ...patch }; });
   return html`
     <section class="section">
-      <header><h3>ES8 Companion messages</h3><p>What a “Companion” switch sends. ES8 Companion learns it from the show.</p></header>
+      <header><h3>Switches → ES8 Companion</h3><p>Each switch sends its own CC on this channel: NUM1 = first CC, NUM2 = next one…
+        ES8 Companion reads them from the show; change them only if they collide with something.</p></header>
       <div class="row">
         <label class="field inline">Channel<input type="number" min="1" max="16" value=${c.channel}
           onInput=${(e) => set({ channel: Math.max(1, Math.min(16, Number(e.target.value) || 16)) })} /></label>
-        ${COMPANION_ACTIONS.map(([a, text]) => html`<label class="field inline">${text}<input type="number" min="0" max="127" value=${c.cc[a]}
-          onInput=${(e) => set({ cc: { ...c.cc, [a]: Math.max(0, Math.min(127, Number(e.target.value) || 0)) } })} /></label>`)}
+        <label class="field inline">First CC<input type="number" min="0" max="112" value=${c.first_cc}
+          onInput=${(e) => set({ first_cc: Math.max(0, Math.min(112, Number(e.target.value) || 0)) })} /></label>
+        <span class="muted small">CC ${c.first_cc}–${c.first_cc + 15}</span>
       </div>
       ${used.length ? html`<p class="error small">Channel ${c.channel} is used by ${used.map((d) => d.name).join(", ")}: pick another one.</p>` : null}
     </section>`;
@@ -1379,7 +1389,8 @@ function SwitchEditor({ k, sw, pb, edit, companion }) {
           <select value=${sw.mode || "toggle"} onChange=${(e) => set({ ...sw, mode: e.target.value })}>
             <option value="toggle">Toggle (latch)</option><option value="momentary">Momentary (while held)</option>
           </select></label>
-      </div><p class="hint">Uses one of the 12 assigns of every patch of the rig: source ${k.replace("_", " ")}, target MIDI.</p>` : null}
+      </div><p class="hint">The switch sends CC${switchCC(companion, k)} on channel ${companion.channel} to ES8 Companion, which switches this
+        parameter on its device and shows its state. Uses one of the 12 assigns of every patch.${k.startsWith("NUM") ? "" : ` ${swName(k)} stops doing its own job.`}</p>` : null}
       ${role === "loop" ? html`<div class="row">
         <label class="field">Loop
           <select value=${sw.loop} onChange=${(e) => set({ ...sw, loop: e.target.value })}>
@@ -1396,8 +1407,8 @@ function SwitchEditor({ k, sw, pb, edit, companion }) {
           <select value=${sw.action} onChange=${(e) => set({ ...sw, action: e.target.value })}>
             ${COMPANION_ACTIONS.map(([a, text]) => html`<option value=${a}>${text}</option>`)}
           </select></label>
-      </div><p class="hint">Tells ES8 Companion to move (CC${companion.cc[sw.action]} on channel ${companion.channel}); the Companion then
-        sends the program change. Uses one of the 12 assigns.${k.startsWith("NUM") ? "" : ` ${swName(k)} stops doing its own job.`}</p>` : null}
+      </div><p class="hint">The switch sends CC${switchCC(companion, k)} on channel ${companion.channel} to ES8 Companion, which does the action
+        (and sends the program change). Uses one of the 12 assigns.${k.startsWith("NUM") ? "" : ` ${swName(k)} stops doing its own job.`}</p>` : null}
       ${!role ? html`<p class="hint">The switch keeps whatever it does on the ES-8 today.</p>` : null}
     </div>`;
 }
