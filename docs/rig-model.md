@@ -62,7 +62,7 @@ pointe n'importe quel patch (vérifié sur l'appareil, L1).
   des patchs consécutifs à partir de `start` (numéro de patch 0–799, ou
   libellé `"12-5"`) ; il peut commencer au milieu d'une banque et en
   déborder. Le Designer propose le premier patch libre.
-- Noms de patch : `<short> <snapshot>`, 16 caractères, inchangé.
+- Noms de patch : 16 caractères, raccourcis automatiquement au besoin (voir le rig).
 - Panneau : en mode patch, NUM1–8 rappellent les patchs de la banque
   affichée, qui peut mêler deux rigs. Le secours sans Companion passe par
   le numéro de patch (affiché par le Designer et la Companion).
@@ -304,7 +304,7 @@ devient l'entrée *i* de la banque MIDI de la setlist :
 ### Vérifications (refus avant toute écriture)
 
 - Rig v1 : 8 snapshots au plus. Rig v2 : pas au-delà du patch 99-8 ; deux
-  rigs ne partagent aucun patch. Noms ≤ 16 caractères.
+  rigs ne partagent aucun patch. `patch_name` ≤ 16 caractères ASCII.
 - Assigns ≤ 12, slots MIDI ≤ 8 par patch.
 - Loops de la chaîne et des snapshots présentes dans le pedalboard.
 - Paramètres et programmes existants ; canaux distincts entre appareils.
