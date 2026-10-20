@@ -93,4 +93,4 @@ patchs entiers).
 | C4 | L'EV-1-WL sait-elle envoyer PC +1 / −1 ? | 👀 | ouvert |
 | C5 | De bout en bout : Chrome sur Android ou ordinateur → ES-8, hors ligne, écran allumé, pédale tourne-page | 👀 | ouvert |
 | C6 | Délai entre l'appui et le changement de patch acceptable sur scène | 👀 | ouvert |
-| C7 | Companion v2 : un switch `param` de l'ES-8 (fonction OFF, CC vers la Companion) bascule le paramètre, la Companion envoie son CC qui ressort en Thru vers l'appareil, et le panneau suit ; l'état repart du snapshot au pas suivant | ✍️ 👀 | ouvert |
+| C7 | Companion v2 : un switch `param` de l'ES-8 (fonction OFF, CC vers la Companion) bascule le paramètre, la Companion envoie son CC qui ressort en Thru vers l'appareil, et le panneau suit ; l'état repart du snapshot au pas suivant | ✍️ 👀 | ✅ 2026-10-20 (Brave, WIDI) : BANK ▲/▼ → CC0 + PC → patch, ses messages suivent ; NUM1 bascule CC20 0/127 ; NUM2 momentané 127/0 ; appui → CC sortant ≈ 40–50 ms par le WIDI aller-retour. Choix auto des ports corrigé (la session réseau macOS était prise) |
