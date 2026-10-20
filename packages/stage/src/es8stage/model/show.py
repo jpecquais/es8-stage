@@ -37,7 +37,8 @@ def _rig_ids(project: Project) -> dict[int, str]:
     return ids
 
 
-def _switch(pedalboard: dict, sw: dict) -> dict:
+def _switch(pedalboard: dict, sw: dict, aliases: dict) -> dict:
+    """Switch de surface tel que la Companion l'affiche ; l'alias du rig (« Drive ») l'emporte sur le nom générique."""
     role = sw["role"]
     out = {"role": role}
     if role == "param":
@@ -45,6 +46,8 @@ def _switch(pedalboard: dict, sw: dict) -> dict:
         out["mode"] = sw.get("mode", "toggle")
         out["target"] = f"{dev['name']} · {param.get('name', param_id)}"
         label = param.get("name", param_id)
+        if aliases.get(sw["param"]):
+            return {"label": aliases[sw["param"]], **out}
     elif role == "loop":
         out["target"] = loop_name(sw["loop"])
         label = pedalboard["loops"][out["target"]]["name"]
@@ -98,7 +101,8 @@ def _rig(rig: Rig) -> dict:
     if rig.surface is not None:
         out["surface"] = {
             "name": rig.surface.get("name", ""),
-            "switches": {key: _switch(pedalboard, sw) for key, sw in rig.surface.get("switches", {}).items()},
+            "switches": {key: _switch(pedalboard, sw, doc.get("aliases") or {})
+                         for key, sw in rig.surface.get("switches", {}).items()},
         }
     return out
 

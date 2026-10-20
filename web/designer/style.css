@@ -224,7 +224,8 @@ input[type="number"] { width: 64px; font-family: var(--font-mono); }
 .prog-cell.own select { color: var(--ink); border-color: var(--dest); }
 
 /* matrice des snapshots */
-.matrix-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); }
+/* Défile dans les deux sens ; noms des snapshots (haut), des lignes (gauche) et des groupes restent visibles. */
+.matrix-wrap { overflow: auto; max-height: calc(100vh - 140px); border: 1px solid var(--line); border-radius: 10px; background: var(--panel); }
 .matrix { border-collapse: separate; border-spacing: 0; min-width: 100%; }
 .matrix th, .matrix td { padding: 6px 8px; border-bottom: 1px solid var(--line); text-align: center; }
 .matrix tr:last-child td { border-bottom: 0; }
@@ -233,7 +234,16 @@ input[type="number"] { width: 64px; font-family: var(--font-mono); }
 .matrix .rowh.rl b { color: var(--led-glow); }
 .matrix .rowh.rp b { color: var(--dest); }
 .matrix .group td { text-align: left; font: 600 11px var(--font-display); letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted); background: var(--surface); padding: 4px 8px; }
-.matrix thead th { vertical-align: top; background: var(--surface); }
+.matrix thead th { vertical-align: top; background: var(--surface); position: sticky; top: 0; z-index: 2; }
+.matrix thead th.rowh { z-index: 3; }
+.matrix .group-label { position: sticky; left: 8px; display: inline-block; }
+.matrix .rowh .all-btn { margin-left: 8px; padding: 1px 6px; border: 1px solid var(--line); border-radius: 4px; background: none;
+  color: var(--muted); font: 600 10px var(--font-mono); cursor: pointer; }
+.matrix .rowh .all-btn:hover { border-color: var(--led); color: var(--led-glow); }
+.matrix .alias-row { display: flex; align-items: center; gap: 2px; }
+.matrix input.alias { width: 120px; padding: 2px 6px; font-weight: 600; background: transparent; border: 1px solid transparent; }
+.matrix input.alias:hover, .matrix input.alias:focus { border-color: var(--line); background: var(--metal); }
+.matrix .alias-of { display: block; font-size: 11px; color: var(--muted); padding-left: 2px; min-height: 0; }
 .snap-h { display: grid; grid-template-columns: minmax(120px, max-content); gap: 4px; justify-items: stretch; }
 .snap-h .num { font: 600 11px var(--font-mono); color: var(--muted); display: flex; gap: 6px; align-items: center; }
 .snap-h input { width: 100%; box-sizing: border-box; text-align: center; font-weight: 600; }

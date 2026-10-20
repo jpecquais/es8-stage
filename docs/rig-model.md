@@ -180,6 +180,9 @@ mode manuel ; en mode patch, NUM1–8 rappellent les snapshots.
   Absent = tous. Chaîne, programmes et paramètres ne peuvent citer que ceux-là
   (les appareils `companion` sont toujours permis) ; le Designer ne montre
   qu'eux, et l'avertissement « câblée mais hors chaîne » les ignore.
+- `aliases` (facultatif) : le nom d'un paramètre dans ce rig
+  (`{"daw.macro1": "Drive"}`). La surface reste générique (Macro1 sur NUM1) ;
+  la Companion affiche l'alias sur le switch quand ce rig joue.
 - `backup` (facultatif) : le rig de secours (id dans un projet, chemin sur
   disque). Un snapshot peut désigner le sien (`"backup": "Lead"`) ; sans
   lien, c'est le premier snapshot du rig de secours. Le bouton Backup de

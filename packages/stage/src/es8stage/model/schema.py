@@ -407,6 +407,15 @@ def check_rig(doc: dict, pedalboard: dict, where: str = "rig") -> dict:
                 problems.append(f"{at}.params: {ref!r} is not a <device>.<param> of the pedalboard.")
             elif value not in ("on", "off") and not _int(value, 0, 127):
                 problems.append(f"{at}.params.{ref}: on, off or 0-127.")
+    aliases = doc.get("aliases", {})
+    if not isinstance(aliases, dict):
+        problems.append('"aliases": expected {"<device>.<param>": "name"}.')
+    else:
+        for ref, alias in aliases.items():
+            if device_param(pedalboard, ref) is None:
+                problems.append(f"aliases: {ref!r} is not a <device>.<param> of the pedalboard.")
+            elif not isinstance(alias, str):
+                problems.append(f"aliases.{ref}: expected a name.")
     if "backup" in doc and not (isinstance(doc["backup"], str) and doc["backup"]):
         problems.append('"backup": expected the backup rig (path, or id in a project).')
     for i, snap in enumerate(snapshots):

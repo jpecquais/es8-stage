@@ -156,3 +156,13 @@ def test_companion_switch_role_sends_its_action_cc(tmp_path):
     with pytest.raises(ModelError, match="channel 2 is used by 'Reverb pedal'"):
         project_from_doc(doc)
     assert companion_settings(None, PEDALBOARD)["channel"] == 16
+
+
+def test_rig_aliases_name_the_switches_in_the_show():
+    doc = project_doc()
+    doc["rigs"]["crunch"]["aliases"] = {"daw.drive": "Big Muff"}
+    sw = export_show(project_from_doc(doc))["rigs"]["crunch"]["surface"]["switches"]["NUM1"]
+    assert sw == {"label": "Big Muff", "role": "param", "mode": "toggle", "target": "DAW · drive"}
+    doc["rigs"]["crunch"]["aliases"] = {"daw.nope": "x"}
+    with pytest.raises(ModelError, match="aliases: 'daw.nope'"):
+        project_from_doc(doc)

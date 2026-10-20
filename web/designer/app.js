@@ -846,6 +846,22 @@ function SnapshotMatrix({ s, rig, rid, pb, edit, short }) {
     sn.loops = sn.loops || [];
     sn.loops = sn.loops.includes(l) ? sn.loops.filter((x) => x !== l) : [...sn.loops, l];
   });
+  /** Une boucle dans tous les snapshots, ou dans aucun si elle y est déjà partout. */
+  const toggleLoopAll = (l) => edit((r) => {
+    const all = r.snapshots.every((sn) => (sn.loops || []).includes(l));
+    r.snapshots.forEach((sn) => {
+      sn.loops = (sn.loops || []).filter((x) => x !== l);
+      if (!all) sn.loops.push(l);
+    });
+  });
+  const setAlias = (ref, name) => edit((r) => {
+    r.aliases = r.aliases || {};
+    if (name.trim()) r.aliases[ref] = name; else delete r.aliases[ref];
+    if (!Object.keys(r.aliases).length) delete r.aliases;
+  });
+  // Le switch de la surface du rig qui pilote chaque paramètre (affiché à côté de l'alias).
+  const surface = (project.doc.surfaces || {})[rig.surface] || { switches: {} };
+  const switchOf = (ref) => Object.entries(surface.switches || {}).find(([, sw]) => sw.role === "param" && sw.param === ref);
   const setParam = (i, ref, value) => edit((r) => {
     const sn = r.snapshots[i];
     sn.params = sn.params || {};
@@ -920,14 +936,14 @@ function SnapshotMatrix({ s, rig, rid, pb, edit, short }) {
             <th class="add-snap"><button onClick=${addSnap} title="Add a snapshot">+</button></th>
           </tr></thead>
           <tbody>
-            ${backupRig ? html`<tr class="group"><td colspan=${cols + 2}>Backup · ${backupRig.name}</td></tr>
+            ${backupRig ? html`<tr class="group"><td colspan=${cols + 2}><span class="group-label">Backup · ${backupRig.name}</span></td></tr>
               <tr><td class="rowh"><b>⇄</b>Backup snapshot</td>
               ${rig.snapshots.map((sn, i) => html`<td class="prog-cell ${sn.backup ? "own" : ""}">
                 <select value=${sn.backup || ""} onChange=${(e) => setBackup(i, e.target.value)}>
                   <option value="">${`First: ${backupRig.snapshots[0].name}`}</option>
                   ${backupRig.snapshots.map((b, k) => html`<option value=${b.name}>${b.name} · ${patchOf(backupRig, k)}</option>`)}
                 </select></td>`)}<td></td></tr>` : null}
-            ${pcDevices.length ? html`<tr class="group"><td colspan=${cols + 2}>Programs</td></tr>` : null}
+            ${pcDevices.length ? html`<tr class="group"><td colspan=${cols + 2}><span class="group-label">Programs</span></td></tr>` : null}
             ${pcDevices.map(([did, d]) => html`<tr>
               <td class="rowh rp"><b>PC</b>${d.name}</td>
               ${rig.snapshots.map((sn, i) => {
@@ -935,20 +951,32 @@ function SnapshotMatrix({ s, rig, rid, pb, edit, short }) {
                 return html`<td class="prog-cell ${own !== undefined ? "own" : ""}"><${ProgramPicker} dev=${d} value=${own}
                   inherited=${(rig.programs || {})[did] ?? null} onChange=${(v) => setProgram(i, did, v)} /></td>`;
               })}<td></td></tr>`)}
-            ${chain.length ? html`<tr class="group"><td colspan=${cols + 2}>Loops</td></tr>` : null}
-            ${chain.map((l) => html`<tr>
-              <td class="rowh rl"><b>${l}</b>${loopTitle(pb, l)}</td>
+            ${chain.length ? html`<tr class="group"><td colspan=${cols + 2}><span class="group-label">Loops</span></td></tr>` : null}
+            ${chain.map((l) => {
+              const all = rig.snapshots.every((sn) => (sn.loops || []).includes(l));
+              return html`<tr>
+              <td class="rowh rl"><b>${l}</b>${loopTitle(pb, l)}
+                <button class="all-btn" aria-pressed=${all} onClick=${() => toggleLoopAll(l)}
+                  title=${all ? "Turn this loop off in every snapshot" : "Turn this loop on in every snapshot"}>${all ? "none" : "all"}</button></td>
               ${rig.snapshots.map((sn, i) => {
                 const on = (sn.loops || []).includes(l);
                 return html`<td><button class="cell cl ${on ? "on" : ""}" aria-pressed=${on} onClick=${() => toggleLoop(i, l)}>${on ? "ON" : ""}</button></td>`;
-              })}<td></td></tr>`)}
+              })}<td></td></tr>`;
+            })}
             ${Object.entries(pb.devices || {}).map(([did, d]) => {
               const rows = params.filter((p) => p.did === did);
               if (!rows.length) return null;
               return html`
-                <tr class="group"><td colspan=${cols + 2}>${d.name} · ch ${d.channel}</td></tr>
-                ${rows.map((p) => html`<tr>
-                  <td class="rowh rp"><b>CC${p.param.cc}</b>${p.param.name || p.pid}</td>
+                <tr class="group"><td colspan=${cols + 2}><span class="group-label">${d.name} · ch ${d.channel}</span></td></tr>
+                ${rows.map((p) => {
+                  const sw = switchOf(p.ref);
+                  const generic = p.param.name || p.pid;
+                  return html`<tr>
+                  <td class="rowh rp"><span class="alias-row"><b>CC${p.param.cc}</b>
+                    <input class="alias" value=${(rig.aliases || {})[p.ref] || ""} placeholder=${generic}
+                      title="This rig's name for the parameter (shown by ES8 Companion on the switch)" aria-label=${`Name of ${generic} in this rig`}
+                      onInput=${(e) => setAlias(p.ref, e.target.value)} /></span>
+                    <span class="alias-of">${(rig.aliases || {})[p.ref] ? generic : ""}${sw ? `${(rig.aliases || {})[p.ref] ? " · " : ""}${swName(sw[0])}` : ""}</span></td>
                   ${rig.snapshots.map((sn, i) => {
                     const v = (sn.params || {})[p.ref];
                     const key = `${i}:${p.ref}`;
@@ -963,7 +991,8 @@ function SnapshotMatrix({ s, rig, rid, pb, edit, short }) {
                       title="Click: on/off · double-click: value"
                       onClick=${() => setParam(i, p.ref, v ? "off" : "on")}
                       onDblClick=${() => setEditing(key)}>${v === "on" ? "ON" : typeof v === "number" ? v : ""}</button></td>`;
-                  })}<td></td></tr>`)}`;
+                  })}<td></td></tr>`;
+                })}`;
             })}
           </tbody>
         </table>
