@@ -63,6 +63,7 @@ function App() {
   const [prefs, setPrefs] = useState({ ...DEFAULT_PREFS, ...boot.current.prefs });
   const [backup, setBackup] = useState(!!boot.current.backup);
   const [states, setStates] = useState({}); // paramètres pilotés par les switches de l'ES-8, pour le pas en cours
+  const [move, setMove] = useState({ n: 0, dir: "" }); // dernier déplacement (animation de la vue Switches)
   const [screen, setScreen] = useState("stage");
   const [songsOpen, setSongsOpen] = useState(false);
   const [browse, setBrowse] = useState(null);
@@ -97,6 +98,7 @@ function App() {
   function goTo(p, label) {
     live.current.pos = p;
     setPos(p);
+    setMove((m) => ({ n: m.n + 1, dir: "jump", at: Date.now() }));
     sendStep(p);
     setTraffic((t) => ({ ...t, in: "screen", action: label }));
     setSongsOpen(false);
@@ -113,9 +115,10 @@ function App() {
     }
     const p = S.move(L.show, L.pos, action);
     setTraffic((t) => ({ ...t, in: source, action: S.actionLabel(action) + (p ? "" : " · end") }));
-    if (!p) return;
+    if (!p) { setMove((m) => ({ n: m.n + 1, dir: "end", at: Date.now() })); return; }
     live.current.pos = p; // un second appui avant le rendu part de la nouvelle position
     setPos(p);
+    setMove((m) => ({ n: m.n + 1, dir: action, at: Date.now() }));
     sendStep(p);
   }
   /** Un switch de l'ES-8 : son rôle dans le rig en cours (action, ou paramètre envoyé à sa machine). */
@@ -128,9 +131,10 @@ function App() {
     if (r.action) { act(r.action, sw.key); return; }
     live.current.states = r.states;
     setStates(r.states);
-    const sent = !!transport && transport.send(r.message);
+    const sent = !!transport && r.messages.every((m) => transport.send(m));
+    const more = r.messages.length > 1 ? ` (+${r.messages.length - 1} off)` : "";
     setTraffic({ in: sw.key, action: `${r.label} ${r.on ? "on" : "off"}`,
-      out: sent ? `ch ${(r.message[0] & 0x0f) + 1} · CC${r.message[1]} = ${r.message[2]}` : "not sent: no output" });
+      out: sent ? `ch ${(r.message[0] & 0x0f) + 1} · CC${r.message[1]} = ${r.message[2]}${more}` : "not sent: no output" });
   }
 
   function handleInput(event, source) {
@@ -255,7 +259,7 @@ function App() {
   }, []);
 
   const ctx = {
-    show, pos, prefs, setPref, bindings, setBindings, learning, setLearning, midi, ports, traffic, error, backup, states,
+    show, pos, prefs, setPref, bindings, setBindings, learning, setLearning, midi, ports, traffic, error, backup, states, move,
     act, goTo, resend: () => { sendStep(live.current.pos); setTraffic((t) => ({ ...t, in: "screen", action: "Resend" })); },
     setScreen, songsOpen, setSongsOpen, browse, setBrowse, loadFile, loadDemo, channel: channel(),
     press: (key, down) => handleSwitch({ key, press: down }), // un pavé touché à l'écran = l'appui du pied
@@ -295,10 +299,17 @@ function BigSwitch({ k, sw, states, press }) {
 
 /** Vue « Switches » : la surface de l'ES-8 en grand, le morceau et les pas en bandeau. */
 function SwitchStage(ctx) {
-  const { show, pos, backup, states, press, songsOpen, setSongsOpen } = ctx;
+  const { show, pos, backup, states, press, songsOpen, setSongsOpen, move } = ctx;
   const v = S.view(show, pos);
   const now = S.played(v.step, v.step.index, backup);
   const sws = (v.rig.surface || {}).switches || {};
+  // Bannière d'un déplacement : où l'on arrive (et le morceau s'il change), ou « fin de la setlist ».
+  const back = ["prev", "prev_song"].includes(move.dir);
+  const fresh = move.n && Date.now() - (move.at || 0) < 1500; // pas de bannière en ouvrant la vue après coup
+  const flash = !fresh ? null : move.dir === "end"
+    ? { cls: "end", text: "End of the setlist" }
+    : { cls: back ? "back" : "fwd", arrow: back ? "◀" : "▶", text: now.snapshot,
+        song: v.posInSong === 0 || move.dir.includes("song") || move.dir === "jump" ? v.song.name : "" };
   const jacks = JACKS.filter((k) => sws[k]);
   return html`
     <div class="app stage-app switch-app">
@@ -309,7 +320,7 @@ function SwitchStage(ctx) {
             <span class="eyebrow">Song ${v.songIndex + 1} / ${v.setlist.songs.length} · step ${v.posInSong + 1}/${v.song.steps}</span>
             <span class="sw-song-name">${v.song.name} <${Icon} name="down" size=${20} /></span>
           </button>
-          <div class=${`sw-now ${backup ? "on-backup" : ""}`}>
+          <div class=${`sw-now ${backup ? "on-backup" : ""} ${fresh ? "pulse" : ""}`} key=${`now-${move.n}`}>
             <span class="eyebrow">${backup ? "Backup" : "Now"} · ${now.label}</span>
             <span class="sw-now-name">${now.snapshot}</span>
           </div>
@@ -319,6 +330,9 @@ function SwitchStage(ctx) {
             ${v.nextIsNewSong ? html`<span class="muted small">${v.setlist.songs[v.next.song].name}</span>` : null}
           </div>
         </header>
+        ${flash ? html`<div class=${`step-flash ${flash.cls}`} key=${`flash-${move.n}`} aria-live="polite">
+            ${flash.arrow ? html`<span class="arrow">${flash.arrow}</span>` : null}
+            <span class="what">${flash.text}</span>${flash.song ? html`<span class="song">${flash.song}</span>` : null}</div>` : null}
         ${v.rig.surface
           ? html`<div class="board">${BOARD.flat().map((k) => html`<${BigSwitch} k=${k} sw=${sws[k]} states=${states || {}} press=${press} />`)}</div>
             ${jacks.length ? html`<div class="board jacks">${jacks.map((k) => html`<${BigSwitch} k=${k} sw=${sws[k]} states=${states || {}} press=${press} />`)}</div>` : null}`

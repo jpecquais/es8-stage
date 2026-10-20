@@ -154,17 +154,30 @@ export function startStates(show, pos) {
   return { ...((v.rig.states || {})[v.step.snapshot] || {}) };
 }
 
-/** Le paramètre d'un switch est-il allumé dans `states` ? */
-export const switchIsOn = (sw, states) => sw.role === "param" && (states[sw.param] ?? sw.off) !== sw.off;
+/**
+ * Le paramètre d'un switch est-il allumé dans `states` ? Un cran (`exact`, plusieurs switches sur un
+ * même paramètre) l'est quand le paramètre vaut exactement sa valeur ; sinon, dès qu'il n'est pas à off.
+ */
+export function switchIsOn(sw, states) {
+  if (sw.role !== "param") return false;
+  const v = states[sw.param] ?? sw.off;
+  return sw.exact ? v === sw.on : v !== sw.off;
+}
+
+const ccMessage = (sw, value) => [0xb0 | ((sw.channel - 1) & 0x0f), sw.cc & 0x7f, value & 0x7f];
 
 /**
  * Appui (ou relâchement) d'un switch → ce qu'il faut faire, ou null :
- * {action} pour une action de navigation ; {states, message, on} pour un paramètre
- * (bascule à l'appui, ou momentané : on à l'appui, off au relâchement).
+ * {action} pour une action de navigation ; {states, messages, on} pour un paramètre.
+ * - momentané : on à l'appui, off au relâchement ;
+ * - bascule : allumé → off, éteint → sa valeur on (pour un cran : choisir ce cran) ;
+ * - groupe : allumer un switch éteint les autres switches allumés du même groupe (sur d'autres
+ *   paramètres ; sur le même paramètre, choisir un cran suffit à éteindre les autres).
  */
 export function pressSwitch(show, pos, key, press, states) {
   const rig = view(show, pos).rig;
-  const sw = rig.surface && rig.surface.switches[key];
+  const all = (rig.surface && rig.surface.switches) || {};
+  const sw = all[key];
   if (!sw) return null;
   if (sw.role === "companion") return press ? { action: sw.target, label: sw.label } : null;
   if (sw.role !== "param") return null;
@@ -172,8 +185,17 @@ export function pressSwitch(show, pos, key, press, states) {
   if (sw.mode === "momentary") value = press ? sw.on : sw.off;
   else if (!press) return null;
   else value = switchIsOn(sw, states) ? sw.off : sw.on;
-  const ch = (sw.channel - 1) & 0x0f;
-  return { states: { ...states, [sw.param]: value }, message: [0xb0 | ch, sw.cc & 0x7f, value & 0x7f], on: value !== sw.off, label: sw.label };
+  const next = { ...states, [sw.param]: value };
+  const messages = [ccMessage(sw, value)];
+  const on = value !== sw.off;
+  if (on && sw.group) {
+    Object.entries(all).forEach(([k, o]) => {
+      if (k === key || o.role !== "param" || o.group !== sw.group || o.param === sw.param || !switchIsOn(o, next)) return;
+      next[o.param] = o.off;
+      messages.push(ccMessage(o, o.off));
+    });
+  }
+  return { states: next, messages, message: messages[0], on, label: sw.label };
 }
 
 export const stepMessages = (channel, midiBank, step) => {

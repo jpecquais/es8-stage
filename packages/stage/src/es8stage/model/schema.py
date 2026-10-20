@@ -257,6 +257,12 @@ def check_surface(doc: dict, pedalboard: dict, where: str = "surface") -> dict:
                 problems.append(f"{at}.param: {sw.get('param')!r} is not a <device>.<param> of the pedalboard.")
             if sw.get("mode", "toggle") not in SWITCH_MODES:
                 problems.append(f"{at}.mode: momentary or toggle.")
+            # Valeur « on » propre au switch : un cran d'un sélecteur (plusieurs switches, un même paramètre).
+            if "value" in sw and not _int(sw["value"], 0, 127):
+                problems.append(f"{at}.value: expected 0-127.")
+            # Groupe exclusif : allumer un switch du groupe éteint les autres (tenu par la Companion).
+            if "group" in sw and not (isinstance(sw["group"], str) and sw["group"].strip()):
+                problems.append(f"{at}.group: expected a group name.")
         elif role == "loop":
             if not key.startswith("NUM"):
                 problems.append(f"{at}: only NUM1-8 can switch a loop in manual mode.")

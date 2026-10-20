@@ -174,3 +174,17 @@ def test_rig_aliases_name_the_switches_in_the_show():
     doc["rigs"]["crunch"]["aliases"] = {"daw.nope": "x"}
     with pytest.raises(ModelError, match="aliases: 'daw.nope'"):
         project_from_doc(doc)
+
+
+def test_switch_groups_and_selector_steps_reach_the_show():
+    doc = project_doc()
+    doc["surfaces"]["lead"]["switches"].update({
+        "NUM2": {"label": "OD", "role": "param", "param": "daw.verb", "value": 24, "group": "drive"},
+        "NUM3": {"label": "Muff", "role": "param", "param": "daw.verb", "value": 40, "group": "drive"},
+    })
+    sws = export_show(project_from_doc(doc))["rigs"]["crunch"]["surface"]["switches"]
+    assert sws["NUM2"]["on"] == 24 and sws["NUM2"]["exact"] is True and sws["NUM2"]["group"] == "drive"
+    assert sws["NUM3"]["off"] == 10  # le off du paramètre (verb : off 10)
+    doc["surfaces"]["lead"]["switches"]["NUM2"]["value"] = 200
+    with pytest.raises(ModelError, match="NUM2.value: expected 0-127"):
+        project_from_doc(doc)

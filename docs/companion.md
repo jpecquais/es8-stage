@@ -219,6 +219,13 @@ Dans le Designer, une surface donne un rôle à chaque switch. Deux familles :
 - `param` en bascule : l'état du paramètre passe de off à on (ou l'inverse),
   la Companion envoie `on`/`off` de ce paramètre sur le canal de son
   appareil. Momentané : `on` à l'appui, `off` au relâchement.
+- **Groupe** (`group` sur le switch) : allumer un switch du groupe éteint
+  les autres switches allumés du même groupe (leur CC off part aussi).
+- **Cran** (`value` sur le switch) : plusieurs switches sur un même
+  paramètre, chacun avec sa valeur « on » (ex. snapshots du Helix par une
+  macro : OD = 24, Big Muff = 40). Le switch est allumé quand le paramètre
+  vaut exactement sa valeur ; appuyer choisit ce cran, réappuyer sur le cran
+  actif renvoie le off du paramètre (Clean). Crans et groupe se combinent.
 - À chaque changement de pas, l'état repart de celui du snapshot (les
   messages du patch ont déjà envoyé ces valeurs).
 - Le panneau affiche l'état de chaque switch (allumé / éteint), à la place

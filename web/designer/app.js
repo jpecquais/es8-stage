@@ -1336,7 +1336,8 @@ function SurfaceEditor({ doc, sid, go, usedBy }) {
       <div class="meter"><span class="bar">${Array.from({ length: MAX_ASSIGNS }, (_, i) => html`<i class=${i < assigns ? "used" : ""}></i>`)}</span>
         <span>${assigns}/${MAX_ASSIGNS} assigns used by MIDI switches${assigns > MAX_ASSIGNS ? " — too many" : ""}</span></div>
     </section>
-    <${SwitchEditor} k=${sel} sw=${switches[sel]} pb=${pb} edit=${edit} companion=${companionOf(doc)} />
+    <${SwitchEditor} k=${sel} sw=${switches[sel]} pb=${pb} edit=${edit} companion=${companionOf(doc)}
+      groups=${[...new Set(Object.values(switches).map((x) => x.group).filter(Boolean))]} />
     <${CompanionSettings} doc=${doc} />`;
 }
 
@@ -1366,7 +1367,7 @@ function CompanionSettings({ doc }) {
     </section>`;
 }
 
-function SwitchEditor({ k, sw, pb, edit, companion }) {
+function SwitchEditor({ k, sw, pb, edit, companion, groups }) {
   const role = sw ? sw.role : "";
   const set = (next) => edit((x) => { x.switches = x.switches || {}; if (next) x.switches[k] = next; else delete x.switches[k]; });
   const params = allParams(pb);
@@ -1396,6 +1397,16 @@ function SwitchEditor({ k, sw, pb, edit, companion }) {
           <select value=${sw.mode || "toggle"} onChange=${(e) => set({ ...sw, mode: e.target.value })}>
             <option value="toggle">Toggle (latch)</option><option value="momentary">Momentary (while held)</option>
           </select></label>
+        <label class="field" title="Leave empty to send the parameter's own 'on' value. Several switches on one parameter with their own values make a selector (e.g. Helix snapshots): pressing the active one goes back to 'off'.">Value when on
+          <input type="number" min="0" max="127" placeholder=${String(((params.find((p) => p.ref === sw.param) || {}).param || {}).on ?? 127)}
+            value=${sw.value ?? ""} onInput=${(e) => {
+              const n = e.target.value === "" ? undefined : Math.max(0, Math.min(127, Number(e.target.value) || 0));
+              const { value, ...rest } = sw; set(n === undefined ? rest : { ...rest, value: n });
+            }} /></label>
+        <label class="field" title="Switches with the same group name are exclusive: turning one on turns the others off.">Group
+          <input list="sw-groups" value=${sw.group || ""} placeholder="none"
+            onInput=${(e) => { const { group, ...rest } = sw; set(e.target.value.trim() ? { ...rest, group: e.target.value } : rest); }} />
+          <datalist id="sw-groups">${(groups || []).map((g) => html`<option value=${g} />`)}</datalist></label>
       </div><p class="hint">The switch sends CC${switchCC(companion, k)} on channel ${companion.channel} to ES8 Companion, which switches this
         parameter on its device and shows its state. Uses one of the 12 assigns of every patch.${k.startsWith("NUM") ? "" : ` ${swName(k)} stops doing its own job.`}</p>` : null}
       ${role === "loop" ? html`<div class="row">

@@ -58,6 +58,10 @@ def _switch(pedalboard: dict, sw: dict, aliases: dict) -> dict:
         # Ce que la Companion envoie quand le switch bascule (elle tient l'état).
         out |= {"param": sw["param"], "channel": dev["channel"], "cc": param["cc"],
                 "on": param.get("on", 127), "off": param.get("off", 0)}
+        if "value" in sw:  # un cran : allumé seulement quand le paramètre vaut exactement cette valeur
+            out |= {"on": sw["value"], "exact": True}
+        if sw.get("group"):
+            out["group"] = sw["group"]
         label = param.get("name", param_id)
         if aliases.get(sw["param"]):
             return {"label": aliases[sw["param"]], **out}

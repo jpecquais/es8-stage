@@ -30,6 +30,20 @@ console.log(JSON.stringify({
           names: v.bank.patches.map((p) => p.snapshot) },
   programs: v.programs.map((p) => p.pc),
   played: [S.played(v.step, 5, false), S.played(v.step, 5, true), S.played(S.view(show, at(0)).step, 0, true)],
+  group: (() => {
+    // Sélecteur : NUM5 / NUM6 sont deux crans (24, 40) d'un même paramètre « amp » (off = 8), dans le groupe
+    // « drive » avec NUM1 (drive, un autre paramètre). Pas 3 : drive on.
+    const g = JSON.parse(JSON.stringify(show));
+    const sws = g.rigs.crunch.surface.switches;
+    const step = (on) => ({ role: "param", mode: "toggle", param: "daw.amp", channel: 1, cc: 22, on, off: 8, exact: true, group: "drive" });
+    sws.NUM5 = { label: "OD", ...step(24) }; sws.NUM6 = { label: "Muff", ...step(40) }; sws.NUM1.group = "drive";
+    const pos = at(3), st = S.startStates(g, pos);
+    const od = S.pressSwitch(g, pos, "NUM5", true, st);
+    const muff = S.pressSwitch(g, pos, "NUM6", true, od.states);
+    const back = S.pressSwitch(g, pos, "NUM6", true, muff.states);
+    const lit = (states) => ["NUM1", "NUM5", "NUM6"].filter((k) => S.switchIsOn(sws[k], states));
+    return { od: [od.messages, lit(od.states)], muff: [muff.messages, lit(muff.states)], back: [back.messages, lit(back.states)] };
+  })(),
   sw: (() => {
     // Pas 3 (White Night / Chorus) : drive on au départ. NUM1 (CC80 ch16) bascule drive, BANK_U avance, NUM4 est momentané.
     const pos = at(3), st = S.startStates(show, pos);
@@ -106,3 +120,7 @@ def test_companion_logic():
     assert sw["next"] == {"action": "next", "label": "Next"}
     assert sw["freeze"] == [[0xB1, 21, 127], [0xB1, 21, 0]]  # momentané : on à l'appui, off au relâchement
     assert sw["other"] is None and sw["unknown"] is None and sw["loop"] is None
+    g = r["group"]
+    assert g["od"] == [[[0xB0, 22, 24], [0xB0, 18, 0]], ["NUM5"]]  # OD choisi, Drive (même groupe) coupé
+    assert g["muff"] == [[[0xB0, 22, 40]], ["NUM6"]]  # un autre cran : OD s'éteint de lui-même
+    assert g["back"] == [[[0xB0, 22, 8]], []]  # réappuyer sur le cran actif : retour au off (Clean)

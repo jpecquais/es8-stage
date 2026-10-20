@@ -313,3 +313,21 @@ code { font-family: var(--font-mono); font-size: 0.9em; }
   .view-seg button { padding: 0 8px; font-size: 13px; }
   .bar-name { max-width: 34vw; }
 }
+
+/* déplacement dans la vue Switches : le bandeau « en cours » clignote, une bannière dit où l'on arrive */
+.sw-stage { position: relative; }
+.sw-now.pulse { animation: now-pulse 600ms ease-out; }
+@keyframes now-pulse { 0% { transform: scale(1.04); box-shadow: 0 0 0 6px color-mix(in srgb, var(--now) 45%, transparent); } 100% { transform: none; box-shadow: none; } }
+.step-flash { position: absolute; left: 50%; top: 42%; z-index: 5; transform: translate(-50%, -50%);
+  display: flex; align-items: baseline; gap: 14px; padding: 14px 26px; border-radius: 16px; pointer-events: none;
+  background: var(--now); color: var(--on-now); box-shadow: 0 12px 40px #000a;
+  animation: flash 1300ms ease-out forwards; max-width: 90%; }
+.step-flash.back { background: var(--ink); color: var(--bg); }
+.step-flash.end { background: var(--panel); color: var(--ink-2); border: 1px solid var(--line-hi); }
+.step-flash .arrow { font-size: 28px; }
+.step-flash .what { font-family: var(--font-display); font-weight: 700; font-size: 44px; line-height: 1; white-space: nowrap;
+  overflow: hidden; text-overflow: ellipsis; }
+.step-flash .song { font-size: 16px; font-weight: 600; opacity: 0.8; white-space: nowrap; }
+@keyframes flash { 0% { opacity: 0; transform: translate(-50%, -40%) scale(0.95); } 12% { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+  70% { opacity: 1; } 100% { opacity: 0; transform: translate(-50%, -55%); } }
+@media (prefers-reduced-motion: reduce) { .sw-now.pulse, .step-flash { animation-duration: 1ms; } .step-flash { display: none; } }
