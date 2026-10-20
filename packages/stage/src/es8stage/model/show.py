@@ -200,7 +200,7 @@ def export_show(project: Project, exported: str | None = None) -> dict:
     show = {
         "schema": SHOW_SCHEMA,
         "exported": exported or datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
-        "es8": {"rx_channel": DEFAULT_RX_CHANNEL},
+        "es8": {"rx_channel": project.companion["es8_channel"]},
         "setlists": setlists,
         "rigs": {rig_ids[start]: _rig(rig) for start, rig in sorted(used.items())},
     }

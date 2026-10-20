@@ -45,13 +45,16 @@ COMPANION_ACTIONS = ("next", "prev", "next_song", "prev_song", "song_start", "ba
 # Switches dont la Companion tient la logique (docs/companion.md, « Les switches de l'ES-8 ») :
 # chacun envoie un CC fixe, first_cc + son rang dans SWITCHES, sur le canal de la Companion.
 COMPANION_ROLES = ("param", "companion")
-DEFAULT_COMPANION = {"channel": 16, "first_cc": 80}
+DEFAULT_COMPANION = {"channel": 16, "first_cc": 80, "es8_channel": 1}
 
 
 def companion_settings(doc, pedalboard: dict, where: str = "companion") -> dict:
-    """Réglages `companion` d'un projet (canal, premier CC), complétés par les valeurs par défaut.
+    """Réglages `companion` d'un projet (canal, premier CC, canal de l'ES-8), complétés par les valeurs par défaut.
 
     Le canal ne doit être celui d'aucun appareil MIDI : il recevrait les CC des switches.
+    `es8_channel` : canal de réception de l'ES-8 (les PC de la setlist). La prise MIDI OUT en Thru
+    recopie ces PC et la Bank Select (CC0) : un appareil sur ce canal les recevrait (avertissement
+    à la compilation, `compile_project`).
     L'ancien format (un CC par action, `cc`) est ignoré : le CC dépend maintenant du switch.
     """
     if doc is None:
@@ -61,16 +64,23 @@ def companion_settings(doc, pedalboard: dict, where: str = "companion") -> dict:
     problems: list[str] = []
     channel = doc.get("channel", DEFAULT_COMPANION["channel"])
     first_cc = doc.get("first_cc", DEFAULT_COMPANION["first_cc"])
+    es8_channel = doc.get("es8_channel", DEFAULT_COMPANION["es8_channel"])
     if not _int(channel, 1, 16):
         problems.append("channel: expected 1-16.")
     if not _int(first_cc, 0, 127 - (len(SWITCHES) - 1)):
         problems.append(f"first_cc: expected 0-{127 - (len(SWITCHES) - 1)} ({len(SWITCHES)} switches follow it).")
+    if not _int(es8_channel, 1, 16):
+        problems.append("es8_channel: expected 1-16.")
+    elif es8_channel == channel:
+        problems.append(f"es8_channel: channel {channel} is already the switches' channel.")
     for dev in (pedalboard.get("devices") or {}).values():
-        if dev.get("channel") == channel and not dev.get("companion"):
+        if dev.get("companion"):
+            continue
+        if dev.get("channel") == channel:
             problems.append(f"channel {channel} is used by {dev['name']!r}: ES8 Companion needs a channel of its own.")
     if problems:
         raise ModelError(where, problems)
-    return {"channel": channel, "first_cc": first_cc}
+    return {"channel": channel, "first_cc": first_cc, "es8_channel": es8_channel}
 
 
 def switch_cc(settings: dict, key: str) -> int:

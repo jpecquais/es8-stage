@@ -140,7 +140,7 @@ def test_companion_switches_are_plain_buttons(tmp_path):
     })
     doc["companion"] = {"channel": 15}
     project = project_from_doc(doc)
-    assert project.companion == {"channel": 15, "first_cc": 80}
+    assert project.companion == {"channel": 15, "first_cc": 80, "es8_channel": 1}
     show = export_show(project)
     # Un CC par switch (80 + rang : NUM1 = 80, NUM4 = 83, MUTE = 89, BANK_D = 90, BANK_U = 91).
     assert show["controls"] == {"channel": 15, "switches": {"NUM1": 80, "NUM4": 83, "MUTE": 89, "BANK_D": 90, "BANK_U": 91}}
@@ -155,7 +155,15 @@ def test_companion_switches_are_plain_buttons(tmp_path):
     doc["companion"] = {"channel": 2}
     with pytest.raises(ModelError, match="channel 2 is used by 'Reverb pedal'"):
         project_from_doc(doc)
-    assert companion_settings(None, PEDALBOARD) == {"channel": 16, "first_cc": 80}
+    assert companion_settings(None, PEDALBOARD) == {"channel": 16, "first_cc": 80, "es8_channel": 1}
+    # Le DAW écoute le canal de l'ES-8 (1) : en Thru il recevrait les PC de la setlist.
+    warnings = compile_project(project, load_dump(FIXTURE)).warnings
+    assert any("DAW listens on channel 1, the ES-8's channel" in w for w in warnings)
+    doc["companion"] = {"channel": 15, "es8_channel": 14}
+    p2 = project_from_doc(doc)
+    assert export_show(p2)["es8"]["rx_channel"] == 14
+    assert compile_project(p2, load_dump(FIXTURE)).system_wanted["midi_setting_rx_ch"] == 13
+    assert not any("ES-8's channel" in w for w in compile_project(p2, load_dump(FIXTURE)).warnings)
 
 
 def test_rig_aliases_name_the_switches_in_the_show():

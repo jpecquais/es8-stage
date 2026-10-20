@@ -388,7 +388,8 @@ def compile_setlist(project: Project, midi_bank: int, setlist: dict, setlist_pat
     """
     _, steps = setlist_steps(project, setlist, setlist_path)
     name = f"pc_map_bank{midi_bank}_pc"
-    return Compiled({"patches": {}}, owns={"patches": {}, "system": [name]}, system_wanted={name: pc_map_entries(steps)})
+    wanted = {name: pc_map_entries(steps), "midi_setting_rx_ch": project.companion["es8_channel"] - 1}
+    return Compiled({"patches": {}}, owns={"patches": {}, "system": sorted(wanted)}, system_wanted=wanted)
 
 
 def compile_project(project: Project, dump: BulkDump) -> Compiled:
@@ -417,6 +418,14 @@ def compile_project(project: Project, dump: BulkDump) -> Compiled:
             sources[key] = source
         out.warnings += part.warnings
     out.owns["system"] = sorted(out.system_wanted)
+    es8 = project.companion["es8_channel"]
+    if out.system_wanted.get("midi_setting_midi_out_mode") == MIDI_OUT_THRU:
+        for dev in (project.pedalboard.get("devices") or {}).values():
+            if dev.get("channel") == es8 and not dev.get("companion"):
+                out.warnings.append(
+                    f"{dev['name']} listens on channel {es8}, the ES-8's channel: through MIDI OUT (Thru) it also gets "
+                    "the setlist's program changes and Bank Select (CC0). Give the ES-8 a channel of its own."
+                )
     if out.system_wanted:
         if dump.system is None:
             raise CodecError("The dump has no system block: system fields cannot be set.")

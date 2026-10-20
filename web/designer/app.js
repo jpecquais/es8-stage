@@ -26,9 +26,10 @@ const NAME_LEN = 16;
 // Switches MIDI et Companion : chacun envoie un CC fixe (premier CC + rang du switch) à ES8 Companion,
 // qui tient la logique (docs/companion.md, « Les switches de l'ES-8 »).
 const SWITCH_ORDER = ["NUM1", "NUM2", "NUM3", "NUM4", "NUM5", "NUM6", "NUM7", "NUM8", "MEM_M", "MUTE", "BANK_D", "BANK_U", "CTL_IN_1", "CTL_IN_2", "CTL_IN_3", "CTL_IN_4"];
-const COMPANION_DEFAULT = { channel: 16, first_cc: 80 };
+const COMPANION_DEFAULT = { channel: 16, first_cc: 80, es8_channel: 1 };
 const companionOf = (doc) => ({ channel: (doc.companion || {}).channel || COMPANION_DEFAULT.channel,
-  first_cc: (doc.companion || {}).first_cc ?? COMPANION_DEFAULT.first_cc });
+  first_cc: (doc.companion || {}).first_cc ?? COMPANION_DEFAULT.first_cc,
+  es8_channel: (doc.companion || {}).es8_channel || COMPANION_DEFAULT.es8_channel });
 const switchCC = (c, key) => c.first_cc + SWITCH_ORDER.indexOf(key);
 const COMPANION_ACTIONS = [["next", "Next step"], ["prev", "Previous step"], ["next_song", "Next song"], ["prev_song", "Previous song"], ["song_start", "Song start"], ["backup", "Backup on / off"]];
 const PATCHES = 800;
@@ -1343,6 +1344,7 @@ function SurfaceEditor({ doc, sid, go, usedBy }) {
 function CompanionSettings({ doc }) {
   const c = companionOf(doc);
   const used = Object.values((doc.pedalboard || {}).devices || {}).filter((d) => d.midi && d.midi.channel === c.channel);
+  const onEs8 = Object.values((doc.pedalboard || {}).devices || {}).filter((d) => d.midi && d.midi.channel === c.es8_channel);
   const set = (patch) => project.update((d) => { d.companion = { ...companionOf(d), ...patch }; });
   return html`
     <section class="section">
@@ -1354,7 +1356,12 @@ function CompanionSettings({ doc }) {
         <label class="field inline">First CC<input type="number" min="0" max="112" value=${c.first_cc}
           onInput=${(e) => set({ first_cc: Math.max(0, Math.min(112, Number(e.target.value) || 0)) })} /></label>
         <span class="muted small">CC ${c.first_cc}–${c.first_cc + 15}</span>
+        <label class="field inline" title="The ES-8 receives the setlist's program changes on this channel (written to the ES-8)">ES-8 channel
+          <input type="number" min="1" max="16" value=${c.es8_channel}
+          onInput=${(e) => set({ es8_channel: Math.max(1, Math.min(16, Number(e.target.value) || 1)) })} /></label>
       </div>
+      ${onEs8.length ? html`<p class="error small">${onEs8.map((d) => d.name).join(", ")} also listen${onEs8.length === 1 ? "s" : ""} on channel ${c.es8_channel}:
+        through the ES-8's MIDI OUT they get the setlist's program changes and Bank Select (CC0). Give the ES-8 another channel.</p>` : null}
       ${used.length ? html`<p class="error small">Channel ${c.channel} is used by ${used.map((d) => d.name).join(", ")}: pick another one.</p>` : null}
     </section>`;
 }
