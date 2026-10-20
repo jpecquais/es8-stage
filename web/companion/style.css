@@ -265,3 +265,51 @@ code { font-family: var(--font-mono); font-size: 0.9em; }
 .welcome-body { max-width: 560px; display: flex; flex-direction: column; gap: 16px; }
 .welcome h1 { margin: 0; font-family: var(--font-display); font-weight: 700; font-size: 48px; }
 .welcome p { margin: 0; font-size: 17px; line-height: 1.5; color: var(--ink-2); }
+
+/* ---------------------------------------------------------------- vue Switches */
+.view-seg button { min-height: 36px; }
+.sw-stage { flex: 1; min-height: 0; display: grid; grid-template-rows: auto minmax(0, 1fr) auto; gap: 12px;
+  padding: 12px; padding-bottom: max(12px, env(safe-area-inset-bottom)); }
+.sw-head { display: grid; grid-template-columns: 1.3fr 1fr 1fr; gap: 10px; }
+.sw-song, .sw-now, .sw-next { display: flex; flex-direction: column; gap: 4px; justify-content: center; min-width: 0;
+  padding: 10px 14px; border-radius: var(--r); }
+.sw-song { background: none; border: 1px solid var(--line); text-align: left; }
+.sw-song-name { display: flex; align-items: center; gap: 6px; font-family: var(--font-display); font-weight: 700; font-size: 28px;
+  line-height: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sw-now { background: var(--now); color: var(--on-now); }
+.sw-now.on-backup { background: var(--backup); }
+.sw-now .eyebrow { color: var(--on-now); }
+.sw-now-name { font-family: var(--font-display); font-weight: 700; font-size: 28px; line-height: 1; overflow-wrap: anywhere; }
+.sw-next { border: 1px solid var(--next); }
+.sw-next .eyebrow, .sw-next-name { color: var(--next); }
+.sw-next-name { font-family: var(--font-display); font-weight: 700; font-size: 22px; line-height: 1; overflow-wrap: anywhere; }
+.board { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); grid-auto-rows: minmax(84px, 1fr); gap: 10px; min-height: 0; }
+.board.jacks { grid-auto-rows: 72px; }
+.bigsw { display: flex; flex-direction: column; justify-content: space-between; gap: 6px; min-width: 0; padding: 10px 12px;
+  border-radius: 14px; border: 1px solid var(--line-hi); background: var(--panel); text-align: left;
+  touch-action: none; user-select: none; -webkit-user-select: none; }
+.bigsw-top { display: flex; justify-content: space-between; gap: 6px; font-size: 12px; color: var(--muted); }
+.bigsw-label { font-family: var(--font-display); font-weight: 700; font-size: clamp(20px, 3vw, 40px); line-height: 1;
+  overflow-wrap: anywhere; }
+.bigsw-state { font-size: 12px; color: var(--muted); }
+.bigsw.on { background: var(--next); border-color: var(--next); color: var(--on-next); box-shadow: 0 0 24px color-mix(in srgb, var(--next) 35%, transparent); }
+.bigsw.on .bigsw-top, .bigsw.on .bigsw-state { color: var(--on-next); }
+.bigsw.native { cursor: default; opacity: 0.7; }
+.bigsw.unused { border-style: dashed; border-color: var(--line); color: var(--muted); background: none; }
+.bigsw:active:not(.native):not(.unused) { transform: scale(0.98); }
+
+@media (max-width: 700px) and (orientation: portrait) {
+  .sw-head { grid-template-columns: 1fr 1fr; }
+  .sw-song { grid-column: 1 / -1; }
+  .board { grid-template-columns: repeat(3, minmax(0, 1fr)); grid-auto-rows: minmax(64px, 1fr); gap: 8px; }
+  .bigsw-label { font-size: 22px; }
+}
+@media (orientation: landscape) and (max-height: 540px) {
+  .sw-stage { gap: 8px; padding: 8px 12px; }
+  .sw-song-name, .sw-now-name { font-size: 22px; }
+  .board { grid-auto-rows: minmax(56px, 1fr); gap: 8px; }
+  .bigsw-label { font-size: 20px; }
+}@media (max-width: 440px) {
+  .view-seg button { padding: 0 8px; font-size: 13px; }
+  .bar-name { max-width: 34vw; }
+}

@@ -232,6 +232,12 @@ Voir la maquette.
   Previous / Now / Next, gros boutons. Panneau : morceau suivant, **switches
   de l'ES-8 avec leur état** (allumé / éteint) et leur nom dans ce rig, ordre
   de la chaîne, programmes.
+- **Switches** (même place que Stage, au choix dans la barre : « Setlist » /
+  « Switches ») : la surface de l'ES-8 en grand, dans sa disposition (rangée
+  du haut, puis NUM1–6 ; CTL IN à part), chaque switch avec son nom dans le
+  rig et allumé quand son paramètre est on. Bandeau : morceau (ouvre la
+  liste), son en cours, suivant. Toucher un pavé = l'appui du pied
+  (momentané : tant qu'on le tient).
 - **Setlists** : onglets par setlist, morceaux et pas (toucher = y aller).
 - **Settings** : sortie (port, canal), entrée (port, clavier), table
   d'actions avec apprentissage, écran.

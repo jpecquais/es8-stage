@@ -12,7 +12,7 @@ const INBOX = "es8companion/incoming"; // déposé par ES8 Designer (« Show »)
 // outName / inName : null = jamais choisi (choix automatique), "" = aucun port.
 const DEFAULT_PREFS = {
   outName: null, inName: null, channel: 0, keyboard: true, wake: true,
-  switchView: "manual", panel: true, bindingsCustom: false,
+  view: "setlist", panel: true, bindingsCustom: false, // view : setlist | switches (la vue de scène)
 };
 const NUMS = ["NUM1", "NUM2", "NUM3", "NUM4", "NUM5", "NUM6", "NUM7", "NUM8"];
 const ROLE_TAG = { loop: (sw) => sw.target || "LOOP", param: (sw) => (sw.mode === "momentary" ? "MOM" : "CC"), tap: () => "TAP", es8: () => "ES-8", companion: (sw) => sw.target.replace("_", " ").toUpperCase() };
@@ -258,16 +258,77 @@ function App() {
     show, pos, prefs, setPref, bindings, setBindings, learning, setLearning, midi, ports, traffic, error, backup, states,
     act, goTo, resend: () => { sendStep(live.current.pos); setTraffic((t) => ({ ...t, in: "screen", action: "Resend" })); },
     setScreen, songsOpen, setSongsOpen, browse, setBrowse, loadFile, loadDemo, channel: channel(),
+    press: (key, down) => handleSwitch({ key, press: down }), // un pavé touché à l'écran = l'appui du pied
   };
   if (screen === "settings") return html`<${Settings} ...${ctx} />`;
   if (!show) return html`<${Welcome} ...${ctx} />`;
   if (screen === "setlists") return html`<${Setlists} ...${ctx} />`;
+  if (prefs.view === "switches") return html`<${SwitchStage} ...${ctx} />`;
   return html`<${Stage} ...${ctx} />`;
 }
 
 // ---------------------------------------------------------------- scène
 
-function StatusBar({ show, pos, midi, ports, traffic, channel, setScreen, backup, act }) {
+// Disposition de l'ES-8 : rangée du haut, puis NUM1–6 ; les prises CTL IN à part.
+const BOARD = [["MEM_M", "MUTE", "BANK_D", "BANK_U", "NUM7", "NUM8"], ["NUM1", "NUM2", "NUM3", "NUM4", "NUM5", "NUM6"]];
+const JACKS = ["CTL_IN_1", "CTL_IN_2", "CTL_IN_3", "CTL_IN_4"];
+const ACTIVE_ROLES = ["param", "companion"]; // tenus par la Companion : un pavé touché agit
+
+/** Un switch en grand : son nom dans ce rig, son rôle, allumé quand son paramètre est on. */
+function BigSwitch({ k, sw, states, press }) {
+  const held = useRef(false);
+  if (!sw) {
+    return html`<div class="bigsw unused"><span class="bigsw-top mono">${SWITCH_NAME[k] || k}</span><span class="bigsw-label">—</span></div>`;
+  }
+  const on = S.switchIsOn(sw, states);
+  const active = ACTIVE_ROLES.includes(sw.role);
+  const down = (e) => { if (!active) return; e.preventDefault(); held.current = true; press(k, true); };
+  const up = () => { if (held.current) { held.current = false; press(k, false); } };
+  return html`<button class=${`bigsw ${on ? "on" : ""} ${active ? "" : "native"}`} aria-pressed=${sw.role === "param" ? on : undefined}
+      onPointerDown=${down} onPointerUp=${up} onPointerLeave=${up} onPointerCancel=${up}
+      title=${active ? "Tap = press the footswitch" : "Handled by the ES-8 itself"}>
+    <span class="bigsw-top mono"><span>${SWITCH_NAME[k] || k}</span><span>${(ROLE_TAG[sw.role] || (() => ""))(sw)}</span></span>
+    <span class="bigsw-label">${sw.label}</span>
+    ${sw.role === "param" ? html`<span class="bigsw-state mono">${on ? "ON" : "off"}</span>` : null}
+  </button>`;
+}
+
+/** Vue « Switches » : la surface de l'ES-8 en grand, le morceau et les pas en bandeau. */
+function SwitchStage(ctx) {
+  const { show, pos, backup, states, press, songsOpen, setSongsOpen } = ctx;
+  const v = S.view(show, pos);
+  const now = S.played(v.step, v.step.index, backup);
+  const sws = (v.rig.surface || {}).switches || {};
+  const jacks = JACKS.filter((k) => sws[k]);
+  return html`
+    <div class="app stage-app switch-app">
+      <${StatusBar} ...${ctx} />
+      <div class="sw-stage">
+        <header class="sw-head">
+          <button class="sw-song" aria-expanded=${songsOpen} onClick=${() => setSongsOpen(true)}>
+            <span class="eyebrow">Song ${v.songIndex + 1} / ${v.setlist.songs.length} · step ${v.posInSong + 1}/${v.song.steps}</span>
+            <span class="sw-song-name">${v.song.name} <${Icon} name="down" size=${20} /></span>
+          </button>
+          <div class=${`sw-now ${backup ? "on-backup" : ""}`}>
+            <span class="eyebrow">${backup ? "Backup" : "Now"} · ${now.label}</span>
+            <span class="sw-now-name">${now.snapshot}</span>
+          </div>
+          <div class="sw-next">
+            <span class="eyebrow">Next</span>
+            <span class="sw-next-name">${v.next ? v.next.snapshot : "End of setlist"}</span>
+            ${v.nextIsNewSong ? html`<span class="muted small">${v.setlist.songs[v.next.song].name}</span>` : null}
+          </div>
+        </header>
+        ${v.rig.surface
+          ? html`<div class="board">${BOARD.flat().map((k) => html`<${BigSwitch} k=${k} sw=${sws[k]} states=${states || {}} press=${press} />`)}</div>
+            ${jacks.length ? html`<div class="board jacks">${jacks.map((k) => html`<${BigSwitch} k=${k} sw=${sws[k]} states=${states || {}} press=${press} />`)}</div>` : null}`
+          : html`<p class="muted">The rig “${v.rig.name}” has no surface.</p>`}
+      </div>
+      ${songsOpen && html`<${SongList} ...${ctx} v=${v} />`}
+    </div>`;
+}
+
+function StatusBar({ show, pos, midi, ports, traffic, channel, setScreen, backup, act, prefs, setPref }) {
   const sl = show.setlists[pos.setlist];
   const ok = midi.status === "ok";
   return html`
@@ -275,6 +336,10 @@ function StatusBar({ show, pos, midi, ports, traffic, channel, setScreen, backup
       <button class="bar-title" onClick=${() => setScreen("setlists")}>
         <span class="eyebrow">Setlist</span><span class="bar-name">${sl.name}${show.demo ? " · demo" : ""}</span>
       </button>
+      <div class="seg view-seg" role="group" aria-label="Stage view">
+        <button aria-pressed=${prefs.view !== "switches"} onClick=${() => setPref({ view: "setlist" })}>Setlist</button>
+        <button aria-pressed=${prefs.view === "switches"} onClick=${() => setPref({ view: "switches" })}>Switches</button>
+      </div>
       <span class="spacer"></span>
       <span class="chip wide"><span class=${`dot ${ok && ports.inp ? "ok" : "bad"}`}></span>In · ${ports.inp ? ports.inp.name : "none"}</span>
       <span class="chip wide"><span class=${`dot ${ok && ports.out ? "ok" : "bad"}`}></span>Out · ${ports.out ? `${ports.out.name} ch ${channel}` : "none"}</span>
