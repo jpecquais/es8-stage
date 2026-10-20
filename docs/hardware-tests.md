@@ -19,6 +19,26 @@ uv run python tests/hardware/run_probe.py   # PC / Bank Select → CC100 reçus,
 
 Séance du 2026-10-19 (sans humain) : D1, D4, D5, D8, L1, L2, L4, C1 faits.
 
+Séance du 2026-10-20 (avec l'utilisateur à la pédale, patch sonde 97-1) : switches MIDI et groupes.
+
+- **Mode manuel** : NUM1–8 ne font que commuter des boucles (`manual_number` : 0 = AUTO, la
+  boucle du même numéro ; 1–8, V = une autre). Aucune assignation ne part, quelle que soit
+  la fonction (`ctl_func` système ignoré pour les NUM). Doc BOSS v2, « Number 1–8 (MAN) ».
+- **Mode memory** : un NUM dont la fonction du patch n'est plus `NUM_x` (OFF, CTL_x…) ne
+  rappelle plus de patch et ses assignations partent. MOM : max à l'appui, min au
+  relâchement ; MOM avec min = max : un cran fixe à chaque appui ; TGL : max puis min.
+- **LED** : la cible `LED_NUMx` marche en memory. Un switch en OFF n'allume pas sa LED tout
+  seul : TGL `LED_NUMx` 0/1 sur lui-même la fait suivre. MOM 1/1 l'allume (sans jamais
+  l'éteindre). MOM 0/0 vers la LED d'un autre switch l'a basculée plutôt qu'éteinte
+  (observé, à confirmer).
+- **Groupes** : forcer un autre switch n'est pas possible. Les cibles CTL1–6 n'agissent
+  pas sur les autres switches (sorties CTL OUT), et chaque assignation TGL garde son état :
+  après « B », un appui sur « A » renvoie son min. La source d'assignation CTL1–4 est la
+  prise CTL IN (doc BOSS v2) : D7 réglé.
+- Une fonction CTL_x sur un switch n'allume pas sa LED.
+- La fonction d'un switch vient du patch ou du système (Preference PAT/SYS, `ctl_sw`) ;
+  les assignations sont toujours celles du patch courant.
+
 ## Socle (ES8 Control, Designer, CLI)
 
 | # | Question | Type | État |
@@ -37,7 +57,7 @@ Séance du 2026-10-19 (sans humain) : D1, D4, D5, D8, L1, L2, L4, C1 faits.
 | D4 | Au rappel, les PC et CC attendus sortent-ils ? Un PC identique est-il renvoyé entre snapshots du même rig ? | ✍️ | ✅ PC et CC attendus ; le PC du rig repart à chaque snapshot. Rappeler le patch déjà chargé n'émet rien |
 | D5 | Encodages : `midi_pc` = 0 n'envoie rien ? `manual_number` = OFF ? | ✍️ 👀 | `midi_pc` = 0 : ✅ aucun PC, le CC part seul. `manual_number` : à voir |
 | D6 | La source d'assign « CC reçu » écoute-t-elle sur le canal de réception système ? | ✍️ | ouvert |
-| D7 | Les sources d'assign CTL1–4 sont-elles les jacks CTL IN 1–4 ? | ✍️ 👀 | supposé dans le code |
+| D7 | Les sources d'assign CTL1–4 sont-elles les jacks CTL IN 1–4 ? | ✍️ 👀 | ✅ oui (doc BOSS v2, exemple « Src CTL1 » = prise CTL1 IN) |
 | D8 | ⛔ Prise MIDI OUT en Thru : les messages des patchs sortent-ils ? Sinon, Out est requis | ✍️ | ✅ oui dans les deux modes ; Thru ajoute l'écho de tout ce qui entre |
 | D9 | `MEM_U` / `MEM_D` passent-ils d'une banque à la suivante ? | 👀 | ouvert |
 
