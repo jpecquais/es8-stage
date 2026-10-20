@@ -27,10 +27,15 @@ function saveStore(data) {
 }
 
 /** Ports utilisés : ceux choisis, sinon la première sortie et l'entrée du même nom. */
+// Ports logiciels que le système crée tout seul (session réseau macOS, IAC, synthé Windows, Midi Through
+// Linux) : jamais un appareil, donc écartés du choix automatique.
+const VIRTUAL_PORT = /r[ée]seau|network|session|\biac\b|gestionnaire iac|microsoft gs|wavetable|midi through/i;
+const firstReal = (ports) => ports.find((p) => !VIRTUAL_PORT.test(p.name)) || ports[0];
+
 function pickPorts(prefs, inputs, outputs) {
-  const out = prefs.outName === null ? outputs[0] : outputs.find((p) => p.name === prefs.outName);
+  const out = prefs.outName === null ? firstReal(outputs) : outputs.find((p) => p.name === prefs.outName);
   const inp = prefs.inName === null
-    ? inputs.find((p) => out && p.name === out.name) || inputs[0]
+    ? inputs.find((p) => out && p.name === out.name) || firstReal(inputs)
     : inputs.find((p) => p.name === prefs.inName);
   return { out: out || null, inp: inp || null };
 }
