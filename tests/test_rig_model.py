@@ -580,12 +580,11 @@ def test_backup_is_refused(edit, message):
     "short, name, expected",
     [
         ("Crunch", "Chorus", "Crunch Chorus"),  # tient : inchangé
-        ("PULSE", "A Great Day For Freedom", "PULSE GrtDayFrdm"),
-        ("PULSE", "A Great Day For Freedom And Maybe This is a very long title", "PULSE GrtDayFMbL"),
         ("PULSE", "A Great Day For Freedom - Intro", "PULSE GDay Intro"),  # la section après « - » reste entière
-        ("PULSE", "Another Brick In The Wall Part 2", "PULSE ABW Part 2"),  # section connue, avec son numéro
+        ("PULSE", "Overdrive Rythm", "PULSE Over Rythm"),  # le dernier mot est la section, jamais collée au titre
+        ("PULSE", "Another Brick In The Wall Part 2", "PULSE ABW Part 2"),  # avec son numéro
         ("PULSE", "Sorrow Outro", "PULSE Srrw Outro"),
-        ("Écho", "Première partie élégante", "Echo PrmrPrtEleg"),  # accents retirés
+        ("Écho", "Première partie élégante", "Echo PP Elegante"),  # accents retirés
     ],
 )
 def test_abbreviate(short, name, expected):
@@ -601,5 +600,13 @@ def test_long_snapshot_names_are_shortened_in_the_patch(dump):
     rig["snapshots"][2]["patch_name"] = "Mine"
     result = compile_rig(PEDALBOARD, None, rig, dump)
     names = [result.changes["patches"][label]["name"].rstrip() for label in ("12-5", "12-6", "12-7", "12-8")]
-    assert names == ["PULSE GDay Intro", "PULSE GD Intro 2", "Mine", "PULSE S3"]
-    assert "Pulse: patch 12-5 is named 'PULSE GDay Intro' (shortened from 'A Great Day For Freedom - Intro')." in result.warnings
+    # Même titre, même écriture : la place du titre suit la plus longue section (« Intro 2 »).
+    assert names == ["PULSE GDF Intro", "PULSE GDF Intr 2", "Mine", "PULSE S3"]
+    assert "Pulse: patch 12-5 is named 'PULSE GDF Intro' (shortened from 'A Great Day For Freedom - Intro')." in result.warnings
+
+
+def test_a_title_is_written_the_same_in_all_its_snapshots():
+    from es8core.model.abbrev import patch_names
+
+    rig = {"short": "PULSE", "snapshots": [{"name": "Any Color You Like Rythme"}, {"name": "Any Color You Like Lead"}]}
+    assert [n for n, _ in patch_names(rig)] == ["PULSE ACY Rythme", "PULSE ACY Lead"]

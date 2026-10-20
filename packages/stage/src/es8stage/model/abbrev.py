@@ -9,8 +9,9 @@ lisible possible.
   prend plus de la moitié de l'écran.
 - Le snapshot est découpé en titre et section : la section est ce qui suit
   le dernier séparateur (« A Great Day For Freedom - Intro » → « Intro »),
-  ou un dernier mot connu (Intro, Verse, Solo, Outro, Couplet…), avec son
-  numéro (« Part 2 »). La section pèse plus que chaque mot du titre.
+  sinon son dernier mot, avec son numéro (« Part 2 ») ; jamais collée au
+  titre. Elle pèse plus que chaque mot du titre : on la garde entière tant
+  que possible (Lead, Rythme…).
 - Les mots vides (a, the, for, de, la…) sont retirés.
 - Chaque mot peut s'écrire en entier, sans ses voyelles intérieures
   (« Freedom » → « Frdm »), par ses premières lettres, par son initiale, ou
@@ -19,6 +20,9 @@ lisible possible.
   perdre un caractère par espace ; titre et section restent séparés.
 - Une recherche exhaustive (programmation dynamique sur le budget de
   caractères) choisit la combinaison qui garde le plus d'information.
+- Dans un rig, un même titre s'écrit pareil dans tous ses snapshots
+  (« ACY Lead », « ACY Rythme ») : sa place est réservée d'après la plus
+  longue de ses sections.
 """
 
 from __future__ import annotations
@@ -32,11 +36,6 @@ STOP_WORDS = {
     "a", "an", "the", "of", "for", "to", "in", "on", "and", "at", "by", "with", "is", "are", "this", "that",
     "it", "very", "from", "as", "or",
     "de", "du", "des", "la", "le", "les", "l", "d", "et", "un", "une", "au", "aux", "en", "ou", "pour", "sur",
-}
-SECTIONS = {
-    "intro", "verse", "prechorus", "pre", "chorus", "bridge", "solo", "outro", "break", "breakdown", "riff",
-    "theme", "lead", "clean", "crunch", "end", "ending", "coda", "interlude", "part", "drop", "build", "hook",
-    "refrain", "couplet", "pont", "fin", "pad", "rhythm",
 }
 VOWELS = set("aeiouyAEIOUY")
 SEPARATORS = re.compile(r"\s+[-–—/]\s+|\s*[|:]\s*")
@@ -85,10 +84,7 @@ def _split(snapshot: str) -> tuple[list[str], list[str]]:
         k = len(words) - 1
         if k >= 1 and words[k].isdigit() and len(words[k]) <= 2:
             k -= 1  # « Part 2 », « Verse 1 »
-        if k >= 1 and words[k].lower() in SECTIONS:
-            title, section = words[:k], words[k:]
-        else:
-            title, section = words, []
+        title, section = (words[:k], words[k:]) if k >= 1 else (words, [])
     kept = [w for w in title if w.lower() not in STOP_WORDS]
     return kept or title[:1], section
 
@@ -96,11 +92,12 @@ def _split(snapshot: str) -> tuple[list[str], list[str]]:
 def _best(title: list[str], section: list[str], budget: int) -> str:
     """Meilleure écriture « titre section » en `budget` caractères au plus."""
     words = [(w, 1.0 / (1 + 0.3 * i), "t") for i, w in enumerate(title)]
-    words += [(w, 1.5 if j == 0 else 1.1, "s") for j, w in enumerate(section)]
+    words += [(w, 2.2 if j == 0 else 1.6, "s") for j, w in enumerate(section)]
     # Pour chaque longueur utilisée : (information gardée, texte, rôle du dernier mot gardé).
     states: dict[int, tuple[float, str, str | None]] = {0: (0.0, "", None)}
     for word, weight, role in words:
         nxt: dict[int, tuple[float, str, str | None]] = {}
+        full = _cap(word)
 
         def keep(length, value, text, last):
             if length <= budget and (length not in nxt or nxt[length][0] < value):
@@ -109,8 +106,10 @@ def _best(title: list[str], section: list[str], budget: int) -> str:
         for used, (value, text, last) in states.items():
             keep(used, value, text, last)  # le mot disparaît
             for form, quality in _forms(word):
-                gain = weight * quality
                 form = _cap(form)
+                if role == "s" and form != full:
+                    quality *= 0.6  # la section se garde entière tant que possible
+                gain = weight * (0.25 + quality)  # 0.25 : le mot est là, même par son initiale
                 if last is None:
                     keep(used + len(form), value + gain, form, role)
                 elif last == role == "t":  # dans le titre : CamelCase, ou un espace s'il reste de la place
@@ -122,17 +121,43 @@ def _best(title: list[str], section: list[str], budget: int) -> str:
     return max(states.values(), key=lambda s: (s[0], -len(s[1])))[1]
 
 
-def abbreviate(short: str, snapshot: str, limit: int = NAME_LEN) -> str:
-    """`<short> <snapshot>` compressé à `limit` caractères (voir le module)."""
+def _head(short: str, limit: int) -> str:
     head = " ".join(ascii_words(short))
-    full = " ".join(filter(None, [head, " ".join(ascii_words(snapshot))]))
-    if len(full) <= limit:
-        return full
     if len(head) > limit // 2:  # un `short` trop long ne laisserait rien au snapshot
         head = "".join(_cap(_devowel(w)) for w in ascii_words(short))[: limit // 2]
+    return head
+
+
+def abbreviate(short: str, snapshot: str, limit: int = NAME_LEN, title_room: int | None = None) -> str:
+    """`<short> <snapshot>` compressé à `limit` caractères (voir le module).
+
+    `title_room` : place réservée au titre (même titre, même écriture dans un rig).
+    """
+    full = " ".join(filter(None, [" ".join(ascii_words(short)), " ".join(ascii_words(snapshot))]))
+    if len(full) <= limit:
+        return full
+    head = _head(short, limit)
+    budget = limit - len(head) - (1 if head else 0)
     title, section = _split(snapshot)
-    body = _best(title, section, limit - len(head) - (1 if head else 0))
+    if title and section and title_room is not None and 0 < title_room < budget - 1:
+        left = _best(title, [], title_room)
+        body = f"{left} {_best([], section, budget - len(left) - 1)}"
+    else:
+        body = _best(title, section, budget)
     return " ".join(filter(None, [head, body]))
+
+
+def _title_rooms(short: str, names: list[str], limit: int) -> dict[tuple, int]:
+    """Place du titre pour chaque titre du rig : ce que laisse sa plus longue section, gardée entière."""
+    head = _head(short, limit)
+    budget = limit - len(head) - (1 if head else 0)
+    longest: dict[tuple, int] = {}
+    for name in names:
+        title, section = _split(name)
+        if title and section:
+            key = tuple(w.lower() for w in title)
+            longest[key] = max(longest.get(key, 0), len(" ".join(section)))
+    return {key: max(3, budget - 1 - n) for key, n in longest.items()}
 
 
 def patch_names(rig: dict, limit: int = NAME_LEN) -> list[tuple[str, bool]]:
@@ -143,6 +168,7 @@ def patch_names(rig: dict, limit: int = NAME_LEN) -> list[tuple[str, bool]]:
     numéro (« … 2 ») pour qu'on les distingue sur l'écran.
     """
     short = rig.get("short", rig.get("name", ""))
+    rooms = _title_rooms(short, [s["name"] for s in rig["snapshots"]], limit)
     out: list[tuple[str, bool]] = []
     for snap in rig["snapshots"]:
         if snap.get("patch_name"):
@@ -152,7 +178,8 @@ def patch_names(rig: dict, limit: int = NAME_LEN) -> list[tuple[str, bool]]:
         if len(full) <= limit and full.isascii():
             out.append((full, False))
         else:
-            out.append((abbreviate(short, snap["name"], limit), True))
+            title = tuple(w.lower() for w in _split(snap["name"])[0])
+            out.append((abbreviate(short, snap["name"], limit, rooms.get(title)), True))
     seen: dict[str, int] = {}
     for i, (name, auto) in enumerate(out):
         if not auto:
