@@ -115,6 +115,24 @@ proprement le Pi, état du WIDI et reconnexion, lecture seule, mise à jour du
 programme). Protégée par un mot de passe (elle peut couper le réseau ou
 effacer un set) ; la Companion reste ouverte sans mot de passe.
 
+Fait (`web/host/`, `es8ctl/host_auth.py`) :
+
+- **Mot de passe** : tant qu'il n'y en a pas, la page est ouverte et propose
+  d'en choisir un. Gardé haché (PBKDF2) dans `host-auth.json` (600) ;
+  session = cookie signé `es8host` (30 jours, survit aux redémarrages ;
+  changer le mot de passe ferme les sessions). Exigé pour : les actions de la
+  page et la suppression dans la bibliothèque (le Designer renvoie à `/host/`).
+- `GET /host/api/status` ; `POST /host/api/` `login`, `logout`, `password`,
+  `edit {on}`, `reconnect`, `backup {name?}`, `restore {name}`, `restart`,
+  `reboot`, `poweroff` (`sudo -n systemctl …`, 0,7 s après la réponse).
+- **Sauvegarde de l'ES-8** par le port de l'hôte : lecture de tout l'ES-8
+  (8 pages système + 800 patchs), permise pendant que la scène joue ; le pont
+  des éditeurs attend la fin.
+- **Restauration** : demande le mode édition (qui reste forcé jusqu'à la fin) ;
+  relit l'ES-8 et garde cet état en sauvegarde « Before restore … », n'écrit
+  que les pages qui diffèrent, puis les relit et renvoie (comme le Designer).
+- Pas sur le site statique (`build-web` l'omet).
+
 ## Le Pi comme une pédale
 
 1. Démarrage automatique du service ; reconnexion du WIDI.
@@ -137,6 +155,7 @@ service systemd, point d'accès.
 2. ✅ **Bibliothèque** : projets du Designer et shows gardés sur le Pi
    (2026-10-20 ; sauvegardes `.syx` : rangement et téléchargement seulement,
    « restaurer » viendra avec la page de l'hôte).
-3. **Page de l'hôte** : bibliothèque, système.
+3. ✅ **Page de l'hôte** : bibliothèque, système, sauvegarde et restauration
+   de l'ES-8, mot de passe (2026-10-20).
 4. **Réseau** : bascule réseau connu / point d'accès, réglages et garde-fou.
 5. Lecture seule, mise à jour du programme depuis la page.

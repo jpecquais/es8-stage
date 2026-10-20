@@ -9,10 +9,13 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
+import queue
 import subprocess
 import threading
 import time
+from datetime import datetime
 from pathlib import Path
 
 from es8core.stage import Stage, check_show
@@ -33,6 +36,8 @@ class StageServer:
         self.midi_seq = 0
         self.midi_cond = threading.Condition()
         self.edit = False  # mode édition : la scène est en pause, les éditeurs peuvent écrire sur l'ES-8
+        self._taps: list[queue.Queue] = []  # SysEx reçu, pour les travaux de l'hôte (sauvegarde, restauration)
+        self.job: dict | None = None  # travail en cours ou dernier fini : {kind, phase, n, total, done, error, result}
         self.stage = Stage(send=self._send, changed=self._changed)
         self._load_show(restore=True)
 
@@ -98,6 +103,9 @@ class StageServer:
         if msg.type in ("clock", "active_sensing"):
             return
         data = msg.bytes()
+        if msg.type == "sysex":
+            for tap in list(self._taps):
+                tap.put(bytes(data))
         with self.midi_cond:  # tout part aussi vers les éditeurs branchés sur le pont
             self.midi_seq += 1
             self.midi_log.append((self.midi_seq, data))
@@ -124,6 +132,8 @@ class StageServer:
         """Envoie des messages d'un éditeur à l'ES-8 ; rend une erreur ou None."""
         if self._out is None:
             return "The ES-8 is not connected to the stage host."
+        if self.busy():
+            return f"The stage host is busy ({self.job['kind']} of the ES-8): try again when it is done."
         if not all(self._allowed(m) for m in messages):
             return "Writing to the ES-8 is locked while the stage plays: turn Edit mode on (it pauses ES8 Companion)."
         for m in messages:
@@ -138,10 +148,112 @@ class StageServer:
             return [(n, d) for n, d in self.midi_log if n > after]
 
     def set_edit(self, on: bool) -> None:
+        if not on and self.busy() and self.job["kind"] == "restore":
+            return  # une restauration écrit encore : la scène reste en pause
         self.edit = bool(on)
         with self.lock:
             self.stage.traffic.update({"in": "host", "action": "Edit mode on" if on else "Edit mode off"})
         self._changed()
+
+    def reconnect(self) -> None:
+        """Bouton de la page de l'hôte : ferme le port et relance aussitôt la liaison (Bluetooth compris)."""
+        self._close()
+        self._last_ble = 0.0
+        if self.ble_address:
+            try:
+                subprocess.run(["bluetoothctl", "disconnect", self.ble_address], capture_output=True, timeout=10, check=False)
+            except (subprocess.TimeoutExpired, OSError):
+                pass
+        self._changed()
+
+    # ---------------------------------------------------------------- sauvegarde et restauration de l'ES-8
+    def busy(self) -> bool:
+        return bool(self.job and not self.job.get("done"))
+
+    def _start_job(self, kind: str, work) -> str | None:
+        if self._out is None:
+            return "The ES-8 is not connected to the stage host."
+        if self.busy():
+            return f"Already busy: {self.job['kind']}."
+        self.job = {"kind": kind, "phase": "start", "n": 0, "total": 0, "done": False, "error": None, "result": None}
+        self._changed()
+
+        def run():
+            tap: queue.Queue = queue.Queue()
+            self._taps.append(tap)
+            try:
+                self.job["result"] = asyncio.run(work(_BridgeTransport(self, tap)))
+            except Exception as exc:  # noqa: BLE001 — rapporté à la page
+                self.job["error"] = str(exc) or repr(exc)
+            finally:
+                self._taps.remove(tap)
+                self.job["done"] = True
+                self._changed()
+
+        threading.Thread(target=run, daemon=True, name=f"stage-{kind}").start()
+        return None
+
+    def _progress(self, phase: str):
+        last = [0.0]
+
+        def report(n: int, total: int) -> None:
+            self.job.update(phase=phase, n=n, total=total)
+            if time.monotonic() - last[0] > 0.5 or n == total:
+                last[0] = time.monotonic()
+                self._changed()
+        return report
+
+    async def _read_all(self, transport, phase: str = "read"):
+        from es8core.codec import PATCH_COUNT
+        from es8core.request import patch_page
+        from es8core.session import read_pages_async
+
+        pages = list(range(8)) + [patch_page(i) for i in range(PATCH_COUNT)]
+        frames, missing = await read_pages_async(transport, pages, on_progress=self._progress(phase))
+        if missing:
+            raise RuntimeError(f"{len(missing)} page(s) of the ES-8 could not be read; nothing was saved.")
+        return frames
+
+    def backup(self, library, name: str | None = None) -> str | None:
+        """Lit tout l'ES-8 (≈ 800 pages) et range le dump dans la bibliothèque. Lecture seule : permis en jouant."""
+        from es8core.request import frames_to_syx
+
+        async def work(transport):
+            frames = await self._read_all(transport)
+            target = name or library.free_name("backups", f"ES-8 {datetime.now().strftime('%Y-%m-%d %H.%M')}")
+            library.write("backups", target, frames_to_syx(frames))
+            return {"name": target}
+
+        return self._start_job("backup", work)
+
+    def restore(self, library, name: str) -> str | None:
+        """Remet l'ES-8 dans l'état d'une sauvegarde : relit l'ES-8 (gardé en sauvegarde « Before restore »),
+        écrit seulement les pages qui diffèrent, puis les relit pour les vérifier. Demande le mode édition."""
+        from es8core.apply import DEFAULT_INTERVAL_S, DEFAULT_PAGE_GAP_S, pending_pages
+        from es8core.codec import PATCH_FRAMES
+        from es8core.codec.roland import split_frames
+        from es8core.request import frames_to_syx
+        from es8core.session import write_confirmed_async
+
+        if not self.edit:
+            return "Restoring writes to the ES-8: turn Edit mode on first (it pauses ES8 Companion)."
+        dump = list(split_frames(library.read("backups", name)))
+
+        async def work(transport):
+            device = await self._read_all(transport, "read")
+            before = library.free_name("backups", f"Before restore {datetime.now().strftime('%Y-%m-%d %H.%M')}")
+            library.write("backups", before, frames_to_syx(device))
+            todo = [f for page in pending_pages(dump, device) for f in page]
+            if not todo:
+                return {"pages": 0, "confirmed": True, "before": before}
+
+            def report(phase, n, total):
+                self._progress(phase)(n, total)
+
+            r = await write_confirmed_async(transport, todo, DEFAULT_INTERVAL_S, DEFAULT_PAGE_GAP_S, on_progress=report)
+            return {"pages": len(todo) // PATCH_FRAMES, "confirmed": r["confirmed"], "before": before}
+
+        return self._start_job("restore", work)
 
     def _ble_reconnect(self) -> None:
         """Relance la liaison Bluetooth : un court balayage (BlueZ doit revoir l'appareil), puis la connexion."""
@@ -204,6 +316,7 @@ class StageServer:
             snap = self.stage.snapshot()
         snap["midi"] = {"connected": self._out is not None, "port": self.port_name, "match": self.midi_match}
         snap["edit"] = self.edit
+        snap["job"] = self.job
         snap["version"] = self.version
         return snap
 
@@ -237,3 +350,25 @@ class StageServer:
 
     def start(self) -> None:
         threading.Thread(target=self.midi_loop, daemon=True, name="stage-midi").start()
+
+
+class _BridgeTransport:
+    """Transport de `es8core.session` sur le port de l'hôte : envoi direct, réception du SysEx reçu."""
+
+    def __init__(self, server: StageServer, tap: queue.Queue):
+        self.server, self.tap = server, tap
+
+    def send(self, raw: bytes) -> None:
+        if not self.server._send(list(raw)):
+            raise RuntimeError("The ES-8 is not connected to the stage host.")
+
+    async def receive(self, timeout_s: float) -> bytes | None:
+        deadline = time.monotonic() + timeout_s
+        while True:
+            try:
+                return self.tap.get_nowait()
+            except queue.Empty:
+                pass
+            if time.monotonic() >= deadline:
+                return None
+            await asyncio.sleep(0.002)
