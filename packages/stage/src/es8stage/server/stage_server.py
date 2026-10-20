@@ -28,6 +28,11 @@ class StageServer:
         self.port_name: str | None = None
         self._in = self._out = None
         self._show_mtime = None
+        # Pont MIDI des éditeurs (Designer, Control) : ce que l'ES-8 répond, numéroté, pour les flux /stage/midi/events.
+        self.midi_log: list[tuple[int, list[int]]] = []
+        self.midi_seq = 0
+        self.midi_cond = threading.Condition()
+        self.edit = False  # mode édition : la scène est en pause, les éditeurs peuvent écrire sur l'ES-8
         self.stage = Stage(send=self._send, changed=self._changed)
         self._load_show(restore=True)
 
@@ -90,10 +95,53 @@ class StageServer:
             return False
 
     def _on_midi(self, msg) -> None:
-        if msg.type in ("clock", "active_sensing", "sysex"):
+        if msg.type in ("clock", "active_sensing"):
             return
+        data = msg.bytes()
+        with self.midi_cond:  # tout part aussi vers les éditeurs branchés sur le pont
+            self.midi_seq += 1
+            self.midi_log.append((self.midi_seq, data))
+            del self.midi_log[:-2000]
+            self.midi_cond.notify_all()
+        if msg.type == "sysex" or self.edit:
+            return  # réponses aux éditeurs ; en mode édition, la scène ne réagit plus aux switches
         with self.lock:
-            self.stage.midi_in(msg.bytes())
+            self.stage.midi_in(data)
+
+    # ---------------------------------------------------------------- pont MIDI des éditeurs
+    # Hors mode édition, seuls les messages sans risque passent : lectures (RQ1), mode éditeur (7F50),
+    # affichage et sélection de patch (7F03, 7F01). Une écriture (DT1 ailleurs) demande le mode édition.
+    _SAFE_DT1 = {(0x7F, 0x50), (0x7F, 0x03), (0x7F, 0x01)}
+
+    def _allowed(self, data: list[int]) -> bool:
+        if self.edit or not data or data[0] != 0xF0:
+            return True
+        if len(data) > 9 and data[1] == 0x41 and data[7] == 0x12:  # DT1 Roland : adresse en 8–9
+            return (data[8], data[9]) in self._SAFE_DT1
+        return True
+
+    def bridge_send(self, messages: list[list[int]]) -> str | None:
+        """Envoie des messages d'un éditeur à l'ES-8 ; rend une erreur ou None."""
+        if self._out is None:
+            return "The ES-8 is not connected to the stage host."
+        if not all(self._allowed(m) for m in messages):
+            return "Writing to the ES-8 is locked while the stage plays: turn Edit mode on (it pauses ES8 Companion)."
+        for m in messages:
+            if not self._send(m):
+                return "MIDI send failed."
+        return None
+
+    def bridge_wait(self, after: int, timeout: float = 15.0) -> list[tuple[int, list[int]]]:
+        """Messages reçus de l'ES-8 après le numéro `after` (attend jusqu'à `timeout`)."""
+        with self.midi_cond:
+            self.midi_cond.wait_for(lambda: self.midi_seq > after, timeout=timeout)
+            return [(n, d) for n, d in self.midi_log if n > after]
+
+    def set_edit(self, on: bool) -> None:
+        self.edit = bool(on)
+        with self.lock:
+            self.stage.traffic.update({"in": "host", "action": "Edit mode on" if on else "Edit mode off"})
+        self._changed()
 
     def _ble_reconnect(self) -> None:
         """Relance la liaison Bluetooth : un court balayage (BlueZ doit revoir l'appareil), puis la connexion."""
@@ -155,12 +203,17 @@ class StageServer:
         with self.lock:
             snap = self.stage.snapshot()
         snap["midi"] = {"connected": self._out is not None, "port": self.port_name, "match": self.midi_match}
+        snap["edit"] = self.edit
         snap["version"] = self.version
         return snap
 
     def handle(self, cmd: dict) -> None:
         """Geste d'un écran : {type: act, action} | {type: press, key, down} | {type: goto, setlist, step}."""
         kind = cmd.get("type")
+        if kind == "edit":
+            return self.set_edit(bool(cmd.get("on")))
+        if self.edit and kind in ("act", "press", "goto", "resend"):
+            return  # mode édition : la scène est en pause
         with self.lock:
             if kind == "act":
                 self.stage.act(str(cmd.get("action")), "screen")

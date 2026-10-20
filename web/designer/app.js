@@ -391,6 +391,7 @@ function Menu({ s, doc }) {
   const device = E.hasDevice();
   let state = "", text = "No MIDI port";
   if (s.midi === "unsupported") text = "Web MIDI unavailable";
+  else if (s.midi === "insecure") text = "No MIDI on this address";
   else if (s.midi === "denied") text = "MIDI access denied";
   else if (device) { state = s.synced ? "on" : ""; text = E.portName(s.out); }
   const source = s.fileName ? s.fileName : s.synced ? "connected" : s.grid && s.grid.source === "cache" ? "last read" : "";
@@ -408,6 +409,11 @@ function Menu({ s, doc }) {
         <span class="dot"></span><span>${text}</span>${source ? html`<span class="src">· ${source}</span>` : null}
       </button>
       ${open ? html`<div class="pop">
+        ${s.stageHost ? html`<div class="stage-host">
+          <b>Stage host</b> <span class="muted small">MIDI goes through the stage host${s.stageHost.connected ? "" : " (ES-8 not connected)"}.</span>
+          <label class="check"><input type="checkbox" checked=${s.stageHost.edit} onChange=${(e) => E.setEditMode(e.target.checked)} />
+            Edit mode: pause ES8 Companion and allow writing to the ES-8</label>
+        </div>` : null}
         ${s.midi === "ok" ? html`
           <label>Output to the ES-8
             <select value=${s.out} onChange=${(e) => E.choosePorts(e.target.value, s.in)}>

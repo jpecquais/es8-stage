@@ -409,3 +409,5 @@ input[type="number"] { width: 64px; font-family: var(--font-mono); }
   .top { flex-wrap: wrap; }
   .board { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 }
+.pop .stage-host { display: grid; gap: 6px; padding-bottom: 10px; border-bottom: 1px solid var(--line); }
+.pop .stage-host label.check { display: flex; align-items: center; gap: 8px; color: var(--ink); font-size: 13px; }
