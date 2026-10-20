@@ -234,11 +234,13 @@ input[type="number"] { width: 64px; font-family: var(--font-mono); }
 .matrix .rowh.rp b { color: var(--dest); }
 .matrix .group td { text-align: left; font: 600 11px var(--font-display); letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted); background: var(--surface); padding: 4px 8px; }
 .matrix thead th { vertical-align: top; background: var(--surface); }
-.snap-h { display: grid; gap: 4px; justify-items: center; min-width: 120px; }
+.snap-h { display: grid; gap: 4px; justify-items: stretch; min-width: 120px; }
 .snap-h .num { font: 600 11px var(--font-mono); color: var(--muted); display: flex; gap: 6px; align-items: center; }
-.snap-h input { width: 112px; text-align: center; font-weight: 600; }
+.snap-h input { width: 100%; box-sizing: border-box; text-align: center; font-weight: 600; }
+.snap-h .num { justify-self: center; }
 .snap-h .lcd { font-size: 15px; padding: 2px 4px; }
-.lcd-input { width: 112px; border: none; text-align: left; }
+/* 16 caractères de l'écran de l'ES-8, tous visibles */
+.snap-h input.lcd-input { width: calc(16ch + 0.64em + 10px); text-align: left; font-weight: 400; border: none; }
 .lcd-input::placeholder { color: var(--lcd-ink); opacity: 1; }
 .lcd-input.auto::placeholder { color: var(--pending); }
 .lcd-input:focus::placeholder { opacity: 0.45; }
