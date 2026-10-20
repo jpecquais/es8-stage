@@ -31,6 +31,7 @@ from .schema import (
     check_pedalboard,
     check_rig,
     check_setlist,
+    DEFAULT_COMPANION,
     check_surface,
     device_param,
     loop_name,
@@ -149,10 +150,12 @@ def _midi_slots(pedalboard: dict, rig: dict, snapshot: dict) -> list[dict]:
     return slots
 
 
-def _surface_fields(pedalboard: dict, surface: dict, patch: dict) -> tuple[dict, dict]:
+def _surface_fields(pedalboard: dict, surface: dict, patch: dict, companion: dict) -> tuple[dict, dict]:
     """Champs de patch (ctl_func, assigns) et système (manual_number) d'une surface.
 
     Une surface possède les 12 assigns : ceux qu'elle n'utilise pas sont coupés.
+    Un switch `companion` est un assign comme un `param` : momentané, il envoie
+    le CC de son action sur le canal de la Companion.
     """
     system: dict = {}
     fields: dict = {name: list(patch[name]) for name in _ASSIGN_FIELDS}
@@ -161,26 +164,32 @@ def _surface_fields(pedalboard: dict, surface: dict, patch: dict) -> tuple[dict,
     slot = 0
     for key, sw in surface["switches"].items():
         role = sw["role"]
-        if role == "param":
-            _, dev, _, param = device_param(pedalboard, sw["param"])
+        if role in ("param", "companion"):
+            if role == "param":
+                _, dev, _, param = device_param(pedalboard, sw["param"])
+                channel, cc, lo, hi, mode = dev["channel"], param["cc"], param.get("off", 0), param.get("on", 127), sw.get("mode", "toggle")
+            else:
+                channel, cc, lo, hi, mode = companion["channel"], companion["cc"][sw["action"]], 0, 127, "momentary"
             if slot >= ASSIGNS:
                 raise ModelError("surface", [f"more than {ASSIGNS} param switches: the ES-8 has {ASSIGNS} assigns."])
             fields["assign_sw"][slot] = 1
             for name, value in (
                 ("assign_source", _ASSIGN_SOURCE[key]),
-                ("assign_mode", 1 if sw.get("mode", "toggle") == "toggle" else 0),
+                ("assign_mode", 1 if mode == "toggle" else 0),
                 ("assign_target", MIDI_TARGET),
-                ("assign_target_cc_ch", dev["channel"] - 1),
-                ("assign_target_cc_no", param["cc"]),
-                ("assign_target_min", param.get("off", 0)),
-                ("assign_target_max", param.get("on", 127)),
+                ("assign_target_cc_ch", channel - 1),
+                ("assign_target_cc_no", cc),
+                ("assign_target_min", lo),
+                ("assign_target_max", hi),
                 ("assign_act_range_lo", 0),
                 ("assign_act_range_hi", 127),
             ):
                 fields[name][slot] = value
             slot += 1
         if key not in _DEFAULT_FUNC:  # switches de mode et CTL IN : pas de manual_number
-            if role == "tap":
+            if role == "companion":  # BANK ▲ ne doit pas aussi changer de banque : la Companion choisit le patch
+                fields["ctl_func"][_CTL_SLOT[key]] = CTL_FUNCTIONS.index("OFF")
+            elif role == "tap":
                 fields["ctl_func"][_CTL_SLOT[key]] = BPM
             elif role == "es8":
                 fields["ctl_func"][_CTL_SLOT[key]] = CTL_FUNCTIONS.index(sw["function"].upper())
@@ -189,7 +198,7 @@ def _surface_fields(pedalboard: dict, surface: dict, patch: dict) -> tuple[dict,
         if role == "loop":
             fields["ctl_func"][_CTL_SLOT[key]] = _DEFAULT_FUNC[key]
             system[number] = LOOPS.index(loop_name(sw["loop"])) + 1
-        elif role == "param":
+        elif role in ("param", "companion"):
             fields["ctl_func"][_CTL_SLOT[key]] = _DEFAULT_FUNC[key]
         elif role == "tap":
             fields["ctl_func"][_CTL_SLOT[key]] = BPM
@@ -208,7 +217,7 @@ def _only_changes(wanted: dict, current: dict) -> dict:
     return {k: v for k, v in wanted.items() if current.get(k) != v}
 
 
-def compile_rig(pedalboard: dict, surface: dict | None, rig: dict, dump: BulkDump) -> Compiled:
+def compile_rig(pedalboard: dict, surface: dict | None, rig: dict, dump: BulkDump, companion: dict | None = None) -> Compiled:
     """Rig → changements de ses patchs (et `manual_number` système). Pur, sans MIDI.
 
     Sans surface, les switches (ctl_func, assigns) ne sont pas touchés.
@@ -237,7 +246,7 @@ def compile_rig(pedalboard: dict, surface: dict | None, rig: dict, dump: BulkDum
         for name in _MIDI_FIELDS:
             wanted[name] = [s[name] for s in slots] + [0] * (MIDI_SLOTS - len(slots))
         if surface is not None:
-            fields, out.system_wanted = _surface_fields(pedalboard, surface, before)
+            fields, out.system_wanted = _surface_fields(pedalboard, surface, before, companion or DEFAULT_COMPANION)
             disabled |= {k for k, v in enumerate(before["assign_sw"]) if v and not fields["assign_sw"][k]}
             wanted.update(fields)
 
@@ -384,7 +393,7 @@ def compile_project(project: Project, dump: BulkDump) -> Compiled:
     """
     out = Compiled({"patches": {}}, owns={"patches": {}, "system": []})
     sources: dict[str, str] = {}
-    parts = [(r.doc["name"], compile_rig(r.pedalboard, r.surface, r.doc, dump)) for r in project.rigs.values()]
+    parts = [(r.doc["name"], compile_rig(r.pedalboard, r.surface, r.doc, dump, project.companion)) for r in project.rigs.values()]
     parts += [
         (setlist.get("name", f"setlist {midi_bank}"), compile_setlist(project, midi_bank, setlist, path))
         for midi_bank, (path, setlist) in sorted(project.setlists.items())

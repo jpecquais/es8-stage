@@ -175,10 +175,19 @@ de la touche). Règles :
 
 Pour piloter la Companion avec les switches de l'ES-8 :
 
-- Dans le pedalboard, un appareil MIDI marqué `"companion": true`, avec un
-  canal et des paramètres nommés comme les actions (`next`, `prev`…).
-- Dans la surface, des switches `param` momentanés vers ces paramètres.
+- Dans la surface, un switch au rôle `companion` avec son action
+  (`{"role": "companion", "action": "next"}`). La Companion n'est pas un
+  appareil du pedalboard : elle ne fait que recevoir ces CC.
+- Le projet fixe le canal et le CC de chaque action (`"companion":
+  {"channel": 16, "cc": {"next": 80, …}}`, ces valeurs par défaut) ; le
+  canal ne peut être celui d'aucun appareil MIDI.
+- Le switch devient un assign momentané. Sur BANK ▲▼, MEM/MAN ou MUTE, sa
+  fonction propre est coupée (`ctl_func` OFF) : seule la Companion change
+  de patch.
 - `export_show` en tire `input_preset` : rien à apprendre pour cet usage.
+- Format ancien, encore lu : un appareil MIDI `"companion": true` dont les
+  paramètres portent le nom des actions. Le Designer le convertit à
+  l'ouverture (aussi un appareil nommé « … Companion » déclaré à la main).
 
 Ce préréglage dépend du test H5 (quels switches envoient un CC en mode
 patch) ; la v1 n'en a pas besoin : l'apprentissage couvre tous les

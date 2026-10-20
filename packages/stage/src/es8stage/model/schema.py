@@ -28,7 +28,7 @@ PROJECT_SCHEMA = "es8ctl.project/1"  # tout en un document (app web, export)
 
 LOOP_NAMES = ("L1", "L2", "L3", "L4", "L5", "L6", "L7", "L8", "LV")
 PROGRAM_CHANGE_MODES = ("none", "pc", "bank_msb_pc", "bank_lsb_pc", "bank_msb_lsb_pc")
-ROLES = ("param", "loop", "tap", "es8")
+ROLES = ("param", "loop", "tap", "es8", "companion")
 SWITCH_MODES = ("momentary", "toggle")
 # Switches d'une surface : NUM1-8, les switches de mode et les entrées CTL IN.
 SWITCHES = (
@@ -42,6 +42,37 @@ MIDI_BANKS = 7  # banques MIDI de la pc_map
 SETLIST_STEPS = 128
 # Actions de ES8 Companion (docs/companion.md) : noms des paramètres d'un appareil `companion`.
 COMPANION_ACTIONS = ("next", "prev", "next_song", "prev_song", "song_start", "backup")
+# Ce qu'envoie un switch au rôle `companion` : un CC par action, sur un canal réservé (réglable par projet).
+DEFAULT_COMPANION = {"channel": 16, "cc": {action: 80 + i for i, action in enumerate(COMPANION_ACTIONS)}}
+
+
+def companion_settings(doc, pedalboard: dict, where: str = "companion") -> dict:
+    """Réglages `companion` d'un projet (canal, CC par action), complétés par les valeurs par défaut.
+
+    Le canal ne doit être celui d'aucun appareil MIDI : il recevrait les CC de la Companion.
+    """
+    if doc is None:
+        doc = {}
+    problems: list[str] = []
+    if not isinstance(doc, dict):
+        raise ModelError(where, ['expected {"channel": 1-16, "cc": {"next": 80, …}}.'])
+    channel = doc.get("channel", DEFAULT_COMPANION["channel"])
+    cc = {**DEFAULT_COMPANION["cc"], **(doc.get("cc") or {})}
+    if not _int(channel, 1, 16):
+        problems.append("channel: expected 1-16.")
+    for action, number in cc.items():
+        if action not in COMPANION_ACTIONS:
+            problems.append(f"cc.{action}: unknown action ({', '.join(COMPANION_ACTIONS)}).")
+        elif not _int(number, 0, 127):
+            problems.append(f"cc.{action}: expected 0-127.")
+    if len(set(cc.values())) != len(cc):
+        problems.append("cc: two actions share a CC number.")
+    for dev_id, dev in (pedalboard.get("devices") or {}).items():
+        if dev.get("channel") == channel and not dev.get("companion"):
+            problems.append(f"channel {channel} is used by {dev['name']!r}: ES8 Companion needs a channel of its own.")
+    if problems:
+        raise ModelError(where, problems)
+    return {"channel": channel, "cc": cc}
 
 
 class ModelError(CodecError):
@@ -221,6 +252,9 @@ def check_surface(doc: dict, pedalboard: dict, where: str = "surface") -> dict:
                 problems.append(f"{at}.loop: expected L1…L8.")
             elif not (pedalboard.get("loops") or {}).get(name):
                 problems.append(f"{at}.loop: {name} is not wired in the pedalboard.")
+        elif role == "companion":
+            if sw.get("action") not in COMPANION_ACTIONS:
+                problems.append(f"{at}.action: one of {', '.join(COMPANION_ACTIONS)}.")
         elif role == "es8":
             from ..names import CTL_FUNCTIONS
 
@@ -498,6 +532,7 @@ class Project:
     setlists: dict[int, tuple[Path | None, dict]] = field(default_factory=dict)  # banque MIDI → setlist
     rig_ids: dict[str, Rig] | None = None  # document projet : id → rig
     tracks: dict[str, dict] | None = None  # document projet : id → morceau
+    companion: dict = field(default_factory=lambda: dict(DEFAULT_COMPANION))  # canal et CC des switches `companion`
 
     def place(self, rig: Rig, where: str) -> None:
         """Range un rig à son premier patch ; refuse deux rigs sur les mêmes patchs."""
@@ -585,7 +620,7 @@ def load_project(path: Path) -> Project:
     if not isinstance(doc.get("pedalboard"), str):
         raise ModelError(str(path), ['"pedalboard": expected a path.'])
     pedalboard = check_pedalboard(read_json(path.parent / doc["pedalboard"]), doc["pedalboard"])
-    project = Project(path, pedalboard)
+    project = Project(path, pedalboard, companion=companion_settings(doc.get("companion"), pedalboard, f"{path}: companion"))
     for key, rel in (doc.get("rigs") or {}).items():
         rig = load_rig(path.parent / rel, pedalboard)
         declared = rig.doc["bank"] if rig.doc["schema"] == RIG_SCHEMA else rig.doc["start"]
@@ -619,7 +654,8 @@ def project_from_doc(doc: dict, where: str = "project") -> Project:
     surfaces = {}
     for sid, surface in (doc.get("surfaces") or {}).items():
         surfaces[sid] = check_surface(surface, pedalboard, f"surface {sid!r}")
-    project = Project(None, pedalboard, rig_ids={}, tracks={})
+    project = Project(None, pedalboard, rig_ids={}, tracks={},
+                      companion=companion_settings(doc.get("companion"), pedalboard, f"{where}.companion"))
     for rid, rig_doc in (doc.get("rigs") or {}).items():
         check_rig(rig_doc, pedalboard, f"rig {rid!r}")
         sid = rig_doc.get("surface")

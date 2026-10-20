@@ -119,7 +119,8 @@ pédale pilotable en MIDI.
 
 - Une boucle appartient à un seul appareil.
 - `midi.program_change` : `none` | `pc` | `bank_msb_pc` | `bank_lsb_pc` | `bank_msb_lsb_pc`.
-- `midi.companion: true` : l'appareil est ES8 Companion (`docs/companion.md`) ;
+- `midi.companion: true` (format ancien, remplacé par le rôle de switch
+  `companion` et le réglage `companion` du projet) : l'appareil est ES8 Companion (`docs/companion.md`) ;
   ses paramètres portent le nom d'une action (`next`, `prev`, `next_song`,
   `prev_song`, `song_start`) et deviennent le préréglage d'entrée du show.
 - Un paramètre est désigné ailleurs par `<appareil>.<param>` (`daw.drive`) ;
@@ -147,7 +148,9 @@ pédale pilotable en MIDI.
 ```
 
 Rôles : `param` (CC vers une destination), `loop`, `tap`, `es8` (fonction
-native : `MEM_M`, `MUTE`…), absent = inchangé. Les switches s'appliquent au
+native : `MEM_M`, `MUTE`…), `companion` (une action de ES8 Companion :
+`next`, `prev`, `next_song`, `prev_song`, `song_start`, `backup` ; canal
+et CC réglés par le projet), absent = inchangé. Les switches s'appliquent au
 mode manuel ; en mode patch, NUM1–8 rappellent les snapshots.
 
 ### `rigs/<nom>.json`

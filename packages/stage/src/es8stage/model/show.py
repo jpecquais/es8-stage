@@ -17,6 +17,8 @@ from .compile import backup_pcs, pc_map_entries, setlist_steps, snapshot_program
 from .schema import Project, Rig, device_param, loop_name, program_label, resolve_program
 
 SHOW_SCHEMA = "es8ctl.show/1"
+COMPANION_LABELS = {"next": "Next", "prev": "Previous", "next_song": "Next song", "prev_song": "Previous song",
+                    "song_start": "Song start", "backup": "Backup"}
 DEFAULT_RX_CHANNEL = 1  # canal de réception de l'ES-8 d'usine ; la Companion le laisse changer
 
 
@@ -46,6 +48,9 @@ def _switch(pedalboard: dict, sw: dict) -> dict:
     elif role == "loop":
         out["target"] = loop_name(sw["loop"])
         label = pedalboard["loops"][out["target"]]["name"]
+    elif role == "companion":
+        out["target"] = sw["action"]
+        label = COMPANION_LABELS[sw["action"]]
     elif role == "es8":
         out["target"] = str(sw["function"]).upper()
         label = out["target"]
@@ -98,20 +103,24 @@ def _rig(rig: Rig) -> dict:
     return out
 
 
-def _input_preset(rigs: list[Rig]) -> dict | None:
-    """Switches de surface qui pilotent un appareil `companion` → table d'entrée toute faite."""
+def _input_preset(rigs: list[Rig], companion: dict) -> dict | None:
+    """Switches de surface au rôle `companion` (ou, format ancien, qui pilotent un appareil `companion`) → table d'entrée."""
     bindings: list[dict] = []
     sources: list[str] = []
     for rig in rigs:
         if rig.surface is None:
             continue
         for sw in rig.surface.get("switches", {}).values():
-            if sw["role"] != "param":
+            if sw["role"] == "companion":
+                binding = {"action": sw["action"], "type": "cc", "channel": companion["channel"],
+                           "number": companion["cc"][sw["action"]]}
+            elif sw["role"] == "param":
+                _, dev, action, param = device_param(rig.pedalboard, sw["param"])
+                if not dev.get("companion"):
+                    continue
+                binding = {"action": action, "type": "cc", "channel": dev["channel"], "number": param["cc"]}
+            else:
                 continue
-            _, dev, action, param = device_param(rig.pedalboard, sw["param"])
-            if not dev.get("companion"):
-                continue
-            binding = {"action": action, "type": "cc", "channel": dev["channel"], "number": param["cc"]}
             if binding not in bindings:
                 bindings.append(binding)
             name = rig.surface.get("name", "")
@@ -160,7 +169,7 @@ def export_show(project: Project, exported: str | None = None) -> dict:
         "setlists": setlists,
         "rigs": {rig_ids[start]: _rig(rig) for start, rig in sorted(used.items())},
     }
-    preset = _input_preset([rig for _, rig in sorted(used.items())])
+    preset = _input_preset([rig for _, rig in sorted(used.items())], project.companion)
     if preset:
         show["input_preset"] = preset
     return show
