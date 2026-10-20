@@ -76,13 +76,20 @@ function App() {
   const [traffic, setTraffic] = useState({ in: "", action: "", out: "" });
   const [error, setError] = useState("");
   const debounce = useRef(S.makeDebounce()).current;
+  // Mode « écran d'un hôte de scène » (docs/stage-host.md) : la page servie par un `es8ctl web --stage`
+  // ne touche pas au MIDI ; elle affiche l'état poussé par l'hôte et lui envoie les gestes.
+  const remote = useRef(false);
+  const [host, setHost] = useState(null); // {connected, port} du MIDI de l'hôte
+  const post = (cmd) => fetch("../stage/act", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(cmd) }).catch(() => {});
 
   // Les callbacks MIDI et clavier sont posés une fois : ils lisent l'état ici.
   const live = useRef({});
   live.current = { ...live.current, show, pos, bindings, prefs, learning, backup, states };
 
   // À chaque pas, l'état repart de celui du snapshot (le patch vient d'envoyer ces valeurs).
+  // Avec un hôte de scène, c'est lui qui tient l'état.
   useEffect(() => {
+    if (remote.current) return;
     const next = show && pos ? S.startStates(show, pos) : {};
     live.current.states = next;
     setStates(next);
@@ -100,6 +107,7 @@ function App() {
     setTraffic((t) => ({ ...t, out: sent ? `${sl.midi_bank ? `bank ${sl.midi_bank} · ` : ""}PC ${play.pc}${play.backup ? " · backup" : ""}` : "not sent: no output" }));
   }
   function goTo(p, label) {
+    if (remote.current) { post({ type: "goto", setlist: p.setlist, step: p.step }); setSongsOpen(false); return; }
     live.current.pos = p;
     setPos(p);
     setMove((m) => ({ n: m.n + 1, dir: "jump", at: Date.now() }));
@@ -108,6 +116,7 @@ function App() {
     setSongsOpen(false);
   }
   function act(action, source) {
+    if (remote.current) { post({ type: "act", action }); return; }
     const L = live.current;
     if (!L.show) return;
     if (action === "backup") { // bascule : le pas en cours repart sur son secours, ou revient au son normal
@@ -160,8 +169,9 @@ function App() {
 
   useEffect(() => {
     let cancelled = false;
+    let events = null;
     const refresh = () => setMidi({ status: "ok", ...transport.ports() });
-    openWebMidi().then((t) => {
+    const openMidi = () => openWebMidi().then((t) => {
       if (cancelled) return;
       transport = t;
       t.onMessage((data) => {
@@ -173,7 +183,35 @@ function App() {
       t.onPortsChange(refresh);
       refresh();
     }).catch((err) => setMidi((m) => ({ ...m, status: err.message })));
-    return () => { cancelled = true; };
+    // Un hôte de scène répond sur /stage/state : on devient son écran, sinon Web MIDI comme avant.
+    let lastMove = null;
+    const apply = (snap) => {
+      if (snap.show && (!live.current.show || live.current.show.exported !== snap.show.exported)) {
+        live.current.show = snap.show;
+        setShow(snap.show);
+      }
+      if (snap.pos) { live.current.pos = snap.pos; setPos(snap.pos); }
+      live.current.states = snap.states || {};
+      setStates(snap.states || {});
+      live.current.backup = !!snap.backup;
+      setBackup(!!snap.backup);
+      setTraffic(snap.traffic || { in: "", action: "", out: "" });
+      if (snap.move && lastMove !== null && snap.move.n !== lastMove) setMove({ ...snap.move, at: Date.now() });
+      if (snap.move) lastMove = snap.move.n;
+      setHost(snap.midi || null);
+    };
+    fetch("../stage/state", { cache: "no-store" })
+      .then((r) => (r.ok ? r.json() : Promise.reject()))
+      .then((snap) => {
+        if (cancelled) return;
+        remote.current = true;
+        setMidi({ status: "remote", inputs: [], outputs: [] });
+        apply(snap);
+        events = new EventSource("../stage/events");
+        events.onmessage = (e) => { try { apply(JSON.parse(e.data)); } catch { /* message abîmé : le suivant le remplace */ } };
+      })
+      .catch(() => { if (!cancelled) openMidi(); });
+    return () => { cancelled = true; if (events) events.close(); };
   }, []);
 
   const ports = pickPorts(prefs, midi.inputs, midi.outputs);
@@ -257,6 +295,7 @@ function App() {
   useEffect(() => {
     let stopped = false;
     const sync = async () => {
+      if (remote.current) return; // l'hôte de scène pousse son show
       let doc;
       try {
         const r = await fetch(SERVER_SHOW, { cache: "no-store" });
@@ -294,9 +333,13 @@ function App() {
 
   const ctx = {
     show, pos, prefs, setPref, bindings, setBindings, learning, setLearning, midi, ports, traffic, error, backup, states, move,
-    act, goTo, resend: () => { sendStep(live.current.pos); setTraffic((t) => ({ ...t, in: "screen", action: "Resend" })); },
+    act, goTo, resend: () => {
+      if (remote.current) { post({ type: "resend" }); return; }
+      sendStep(live.current.pos); setTraffic((t) => ({ ...t, in: "screen", action: "Resend" }));
+    },
     setScreen, songsOpen, setSongsOpen, browse, setBrowse, loadFile, loadDemo, channel: channel(),
-    press: (key, down) => handleSwitch({ key, press: down }), // un pavé touché à l'écran = l'appui du pied
+    press: (key, down) => (remote.current ? post({ type: "press", key, down }) : handleSwitch({ key, press: down })), // pavé touché = appui du pied
+    host, remote: remote.current,
   };
   if (screen === "settings") return html`<${Settings} ...${ctx} />`;
   if (!show) return html`<${Welcome} ...${ctx} />`;
@@ -376,7 +419,7 @@ function SwitchStage(ctx) {
     </div>`;
 }
 
-function StatusBar({ show, pos, midi, ports, traffic, channel, setScreen, backup, act, prefs, setPref }) {
+function StatusBar({ show, pos, midi, ports, traffic, channel, setScreen, backup, act, prefs, setPref, host, remote }) {
   const sl = show.setlists[pos.setlist];
   const ok = midi.status === "ok";
   return html`
@@ -389,13 +432,16 @@ function StatusBar({ show, pos, midi, ports, traffic, channel, setScreen, backup
         <button aria-pressed=${prefs.view === "switches"} onClick=${() => setPref({ view: "switches" })}>Switches</button>
       </div>
       <span class="spacer"></span>
-      <span class="chip wide"><span class=${`dot ${ok && ports.inp ? "ok" : "bad"}`}></span>In · ${ports.inp ? ports.inp.name : "none"}</span>
-      <span class="chip wide"><span class=${`dot ${ok && ports.out ? "ok" : "bad"}`}></span>Out · ${ports.out ? `${ports.out.name} ch ${channel}` : "none"}</span>
+      ${remote
+        ? html`<span class="chip wide" title="This screen shows the stage host, which talks to the ES-8 itself">
+            <span class=${`dot ${host && host.connected ? "ok" : "bad"}`}></span>Stage host · ${host && host.connected ? host.port : "ES-8 not connected"}</span>`
+        : html`<span class="chip wide"><span class=${`dot ${ok && ports.inp ? "ok" : "bad"}`}></span>In · ${ports.inp ? ports.inp.name : "none"}</span>
+          <span class="chip wide"><span class=${`dot ${ok && ports.out ? "ok" : "bad"}`}></span>Out · ${ports.out ? `${ports.out.name} ch ${channel}` : "none"}</span>`}
       <span class="chip mono traffic">
         ${traffic.action ? html`<span class="muted">in</span> ${traffic.in} <span class="muted">→</span> ${traffic.action}` : html`<span class="muted">waiting</span>`}
         ${traffic.out && html` <span class="muted">out</span> <span class="amber">${traffic.out}</span>`}
       </span>
-      <span class=${`dot only-small ${ok && ports.out ? "ok" : "bad"}`}></span>
+      <span class=${`dot only-small ${remote ? (host && host.connected ? "ok" : "bad") : ok && ports.out ? "ok" : "bad"}`}></span>
       <button class=${`chip backup-btn ${backup ? "on" : ""}`} aria-pressed=${backup} onClick=${() => act("backup", "screen")}
         title="Switch every step to its backup patch, or back">Backup</button>
       <button class="icon-btn" aria-label="Settings" onClick=${() => setScreen("settings")}><${Icon} name="menu" /></button>
@@ -568,6 +614,8 @@ function Setlists({ show, pos, goTo, browse, setBrowse, setScreen }) {
 
 const MIDI_HELP = {
   pending: "Asking the browser for MIDI access…",
+  remote: "This screen shows the stage host (es8ctl web --stage): the host talks MIDI to the ES-8 itself, this screen only shows and controls it.",
+  insecure: "No MIDI on this address: browsers give MIDI only to secure pages (https, or localhost). On a stage host the ES-8 is driven by the host itself; this screen only shows and controls it.",
   unsupported: "This browser has no Web MIDI. Use Chrome or Edge (Android, Windows, macOS, Linux). Safari on iPhone and iPad has no Web MIDI.",
   denied: "MIDI access was refused. Allow it in the browser's site settings, then reload.",
 };

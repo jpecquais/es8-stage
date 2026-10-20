@@ -8,8 +8,11 @@
 //   onMessage(cb)    → cb(data: Uint8Array) pour chaque message de l'entrée
 //   onPortsChange(cb)
 
-/** Ouvre Web MIDI, sans SysEx. Rejette avec "unsupported" ou "denied". */
+/** Ouvre Web MIDI, sans SysEx. Rejette avec "insecure", "unsupported" ou "denied". */
 export async function openWebMidi() {
+  // Les navigateurs ne donnent le MIDI qu'aux pages sûres (HTTPS ou localhost) : une adresse
+  // http://<machine>.local du réseau n'y a pas droit, même dans un navigateur qui le gère.
+  if (!window.isSecureContext) throw new Error("insecure");
   if (!navigator.requestMIDIAccess) throw new Error("unsupported");
   let access;
   try {

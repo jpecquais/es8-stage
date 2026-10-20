@@ -5,7 +5,7 @@ dans la setlist, traduit les appuis sur les switches de l'ES-8 et envoie les
 messages aux machines. Les tablettes et téléphones du réseau n'en sont que
 des écrans (et des télécommandes). Rôles : `docs/companion.md`.
 
-Statut : décidé le 2026-10-20. Pi installé (`pedalbrain`, Raspberry Pi 3
+Statut : décidé et codé le 2026-10-20 (`es8core.stage`, `es8ctl/stage_server.py`). Pi installé (`pedalbrain`, Raspberry Pi 3
 Model B, Raspberry Pi OS Lite 64 bits « Trixie », sans GUI, utilisateur
 `es8`, SSH par clé). Liaison avec l'ES-8 : le WIDI Jack en Bluetooth (BLE
 MIDI de BlueZ) pour l'instant ; une interface USB-MIDI filaire plus tard.
@@ -35,14 +35,17 @@ ES-8 ──BLE MIDI (WIDI)──▶ Pi : es8ctl stage ──BLE MIDI──▶ ES
 - **Show** : un fichier sur le Pi (`~/.local/share/es8ctl/show.json`),
   remplacé par un envoi depuis le Designer ou `es8ctl stage push` ; la
   position et l'état sont gardés à côté.
-- **HTTP** : sert `web/companion/` et une WebSocket `/stage` :
-  - Pi → écrans : `{"type": "state", show, pos, states, backup, traffic, move}`
-    à chaque changement ;
-  - écrans → Pi : `{"type": "act", action}`, `{"type": "press", key, down}`,
-    `{"type": "goto", setlist, step}`, `{"type": "show", show}`.
-- **La Companion web** gagne un mode « Pi » : si la page est servie par le
-  Pi (ou `?stage=ws://…`), elle ne demande pas le MIDI et passe par la
-  WebSocket ; sinon elle fonctionne comme aujourd'hui (navigateur seul).
+- **HTTP** (`es8ctl web --stage --midi WIDI [--ble <adresse>]`), bibliothèque
+  standard seulement :
+  - `GET /stage/state` : l'état (show, pos, states, backup, traffic, move,
+    midi) ; `GET /stage/events` : le même, poussé à chaque changement
+    (Server-Sent Events) ;
+  - `POST /stage/act` : `{"type": "act", action}`, `{"type": "press", key,
+    down}`, `{"type": "goto", setlist, step}`, `{"type": "resend"}` ;
+  - `POST /stage/show.json` : nouveau show, rechargé aussitôt.
+- **La Companion web** : si `/stage/state` répond, elle devient l'écran de
+  l'hôte (aucun MIDI dans le navigateur, d'où le fonctionnement en HTTP
+  simple) ; sinon elle fonctionne comme avant (Web MIDI du navigateur).
 
 ## Le Pi comme une pédale
 
