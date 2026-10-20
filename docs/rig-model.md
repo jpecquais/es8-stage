@@ -194,7 +194,11 @@ mode manuel ; en mode patch, NUM1–8 rappellent les snapshots.
   (`routing.py`, de la sortie vers l'entrée) au lieu d'une liste.
 - Paramètre absent d'un snapshot = `off`. Une valeur peut être `on`, `off`
   ou un nombre 0–127.
-- Nom de patch : `<short> <snapshot>`, 16 caractères au plus (refus sinon).
+- Nom de patch : `patch_name` du snapshot s'il en a un (16 caractères ASCII
+  au plus) ; sinon `<short> <snapshot>`, raccourci automatiquement s'il
+  dépasse (`model/abbrev.py` : accents, mots vides, voyelles, initiales…
+  « PULSE A Great Day For Freedom - Intro » → « PULSE GDF Intro »). Le nom du
+  snapshot reste libre : morceaux et Companion l'affichent en entier.
 
 ### `setup.json`
 

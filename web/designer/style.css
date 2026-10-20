@@ -238,6 +238,10 @@ input[type="number"] { width: 64px; font-family: var(--font-mono); }
 .snap-h .num { font: 600 11px var(--font-mono); color: var(--muted); display: flex; gap: 6px; align-items: center; }
 .snap-h input { width: 112px; text-align: center; font-weight: 600; }
 .snap-h .lcd { font-size: 15px; padding: 2px 4px; }
+.lcd-input { width: 112px; border: none; text-align: left; }
+.lcd-input::placeholder { color: var(--lcd-ink); opacity: 1; }
+.lcd-input.auto::placeholder { color: var(--pending); }
+.lcd-input:focus::placeholder { opacity: 0.45; }
 .cell {
   width: 38px; height: 26px; border-radius: 6px; border: 1px solid var(--line); background: var(--metal); cursor: pointer;
   font: 600 11px var(--font-mono); color: var(--muted);

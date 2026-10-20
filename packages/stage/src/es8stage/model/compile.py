@@ -22,6 +22,7 @@ from ..names import ASSIGN_SOURCES, ASSIGN_TARGETS, CTL_FUNCTIONS, CTL_SLOTS, LO
 from ..patch import decode_patch
 from ..routing import parse as parse_chain
 from ..system import PC_MAP_ENTRIES, decode_system
+from .abbrev import patch_names
 from .schema import (
     RIG_SCHEMA,
     SNAPSHOTS_PER_RIG,
@@ -227,7 +228,7 @@ def compile_rig(pedalboard: dict, surface: dict | None, rig: dict, dump: BulkDum
     if surface is not None:
         check_surface(surface, pedalboard)
     out = Compiled({"patches": {}}, owns={"patches": {}, "system": []})
-    short = rig.get("short", rig["name"])
+    names = patch_names(rig)
     notation = chain_notation(rig.get("chain", []))
     disabled: set[int] = set()
 
@@ -237,7 +238,7 @@ def compile_rig(pedalboard: dict, surface: dict | None, rig: dict, dump: BulkDum
         before = _patch(dump, index)
         on = {loop_name(t) for t in snap.get("loops", [])}
         wanted: dict = {
-            "name": f"{short} {snap['name']}".strip().ljust(NAME_LEN),
+            "name": names[i][0].ljust(NAME_LEN),
             "loop_sw": [int(name in on) for name in LOOPS],
         }
         slots = _midi_slots(pedalboard, rig, snap)
@@ -265,6 +266,10 @@ def compile_rig(pedalboard: dict, surface: dict | None, rig: dict, dump: BulkDum
             out.changes["system"] = system
     out.owns["system"] = sorted(out.system_wanted)
     out.warnings += [f"{rig['name']}: {w}" for w in _rig_warnings(pedalboard, rig, disabled)]
+    out.warnings += [
+        f"{rig['name']}: patch {patch_label(rig_start(rig) + i)} is named {name!r} (shortened from {snap['name']!r})."
+        for i, ((name, auto), snap) in enumerate(zip(names, rig["snapshots"])) if auto
+    ]
     return out
 
 

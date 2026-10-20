@@ -143,7 +143,8 @@ def test_without_surface_switches_are_untouched(dump):
     "edit, message",
     [
         (lambda r: r.update(bank=100), "bank"),
-        (lambda r: r.update(short="Very long short"), "16 at most"),
+        (lambda r: r["snapshots"][0].update(patch_name="Seventeen chars!!"), "16 characters at most"),
+        (lambda r: r["snapshots"][0].update(patch_name="Écho"), "plain ASCII"),
         (lambda r: r["snapshots"][0].update(loops=["L3"]), "not wired"),
         (lambda r: r["snapshots"][0].update(loops=["L8"]), "not in the rig's chain"),
         (lambda r: r["snapshots"][0].update(params={"daw.nope": "on"}), "daw.nope"),
@@ -570,3 +571,34 @@ def test_backup_is_refused(edit, message):
     edit(doc)
     with pytest.raises(ModelError, match=message):
         project_from_doc(doc)
+
+
+# ---------------------------------------------------------------- noms de patch raccourcis
+
+
+@pytest.mark.parametrize(
+    "short, name, expected",
+    [
+        ("Crunch", "Chorus", "Crunch Chorus"),
+        ("PULSE", "A Great Day For Freedom - Intro", "PULSE GDF Intro"),
+        ("PULSE", "A Great Day For Freedom", "PULSE GD Freedom"),
+        ("PULSE", "Shine On You Crazy Diamond Part 2", "PULSE SYCD Prt 2"),
+        ("PULSE", "Sorrow Outro", "PULSE Srrw Outro"),
+        ("Écho", "Première partie élégante", "Echo PP elegante"),
+    ],
+)
+def test_abbreviate(short, name, expected):
+    from es8core.model.abbrev import abbreviate
+
+    assert abbreviate(short, name) == expected
+
+
+def test_long_snapshot_names_are_shortened_in_the_patch(dump):
+    rig = json.loads(json.dumps(RIG_V2))
+    rig["snapshots"][0]["name"] = "A Great Day For Freedom - Intro"
+    rig["snapshots"][1]["name"] = "A Great Day For Freedom - Intro (2)"
+    rig["snapshots"][2]["patch_name"] = "Mine"
+    result = compile_rig(PEDALBOARD, None, rig, dump)
+    names = [result.changes["patches"][label]["name"].rstrip() for label in ("12-5", "12-6", "12-7", "12-8")]
+    assert names == ["PULSE GDF Intro", "PULSE GDF Intr 2", "Mine", "PULSE S3"]
+    assert "Pulse: patch 12-5 is named 'PULSE GDF Intro' (shortened from 'A Great Day For Freedom - Intro')." in result.warnings

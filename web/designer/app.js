@@ -67,6 +67,8 @@ const slug = (text, taken) => {
   while (taken.includes(id)) id = `${base}-${n++}`;
   return id;
 };
+/** Noms écrits dans les patchs d'un rig (16 caractères, raccourcis par le moteur au besoin) : [[nom, auto], …]. */
+const patchNames = (rig) => { try { return call("patch_names", JSON.stringify(rig)); } catch { return []; } };
 const plural = (n, word) => `${n} ${word}${n === 1 ? "" : "s"}`;
 
 // ================================================================= projet
@@ -633,7 +635,7 @@ function RigEditor({ s, doc, rid, go }) {
   const pb = pbOf(doc);
   const edit = (fn) => project.update((d) => fn(d.rigs[rid], d));
   const short = rig.short ?? rig.name;
-  const longest = Math.max(0, ...rig.snapshots.map((sn) => `${short} ${sn.name}`.trim().length));
+  const shortened = patchNames(rig).filter(([, auto]) => auto).length;
   const clash = overlaps(doc, rid);
   const moveToFree = () => {
     const n = freeStart(doc, rig.snapshots.length, rid);
@@ -661,7 +663,7 @@ function RigEditor({ s, doc, rid, go }) {
       <label class="field">Rig<input class="title" value=${rig.name} onInput=${(e) => edit((r) => { r.name = e.target.value; })} /></label>
       <label class="field">Short name (patch names: ${"<short> <snapshot>"})
         <span class="row"><input value=${short} size="10" onInput=${(e) => edit((r) => { r.short = e.target.value; })} />
-          <span class="count ${longest > NAME_LEN ? "over" : ""}">${longest}/${NAME_LEN}</span></span></label>
+          ${shortened ? html`<span class="muted small" title="Their ES-8 patch name is shortened to 16 characters; edit it under each snapshot">${plural(shortened, "name")} shortened</span>` : null}</span></label>
       <label class="field">First patch
         <span class="row"><input class="mono" size="5" value=${typeof rig.start === "number" ? patchAt(rig.start) : rig.start}
           onChange=${(e) => { const n = parseLabel(e.target.value); if (n === null) toast("A patch is bank-number, 0-1 … 99-8.", "warn"); else edit((r) => { r.start = patchAt(n); }); }} />
@@ -880,6 +882,7 @@ function SnapshotMatrix({ s, rig, rid, pb, edit, short }) {
     r.snapshots.push({ name: `Snap ${n}`, loops: [...(last.loops || [])], params: { ...(last.params || {}) } });
   });
   const cols = rig.snapshots.length;
+  const names = patchNames(rig);
   return html`
     <section class="section">
       <header><h3>Snapshots</h3>
@@ -890,15 +893,21 @@ function SnapshotMatrix({ s, rig, rid, pb, edit, short }) {
           <thead><tr>
             <th class="rowh"></th>
             ${rig.snapshots.map((sn, i) => {
-              const full = `${short} ${sn.name}`.trim();
+              const [pname, auto] = names[i] || [`${short} ${sn.name}`.trim(), false];
               const at = patchOf(rig, i);
               return html`<th><div class="snap-h">
                 <span class="num">${at}
                   <button class="link" title="Recall this patch on the ES-8" disabled=${!E.hasDevice() || s.busy} onClick=${() => E.play(at)}>▶</button>
                   ${cols > 1 ? html`<button class="x" title="Remove this snapshot" onClick=${() => removeSnap(i)}>×</button>` : null}</span>
-                <input value=${sn.name} onInput=${(e) => rename(i, e.target.value)} aria-label="Snapshot name" />
-                <span class="lcd" title="Patch name on the ES-8">${full.slice(0, NAME_LEN).padEnd(NAME_LEN)}</span>
-                ${full.length > NAME_LEN ? html`<span class="count over">${full.length}/${NAME_LEN}</span>` : null}
+                <input value=${sn.name} title=${sn.name} onInput=${(e) => rename(i, e.target.value)} aria-label="Snapshot name" />
+                <input class="lcd lcd-input ${sn.patch_name ? "own" : auto ? "auto" : ""}" maxlength=${NAME_LEN} spellcheck="false"
+                  value=${sn.patch_name || ""} placeholder=${pname} aria-label="Patch name on the ES-8"
+                  title=${sn.patch_name ? "Your patch name. Empty it to get the automatic one." : auto ? "Shortened automatically to 16 characters: type to change it" : "Patch name on the ES-8: type to change it"}
+                  onInput=${(e) => edit((r) => {
+                    const v = e.target.value.normalize("NFKD").replace(/[^\x20-\x7e]/g, "");
+                    if (v.trim()) r.snapshots[i].patch_name = v; else delete r.snapshots[i].patch_name;
+                  })} />
+                <span class="count">${sn.patch_name ? "yours" : auto ? "auto · shortened" : ""}</span>
               </div></th>`;
             })}
             <th class="add-snap"><button onClick=${addSnap} title="Add a snapshot">+</button></th>
@@ -1047,7 +1056,7 @@ function TrackEditor({ s, doc, tid, go }) {
   const rig = (doc.rigs || {})[t.rig];
   const edit = (fn) => project.update((d) => fn(d.tracks[tid], d));
   const names = rig ? rig.snapshots.map((sn) => sn.name) : [];
-  const short = rig ? rig.short ?? rig.name : "";
+  const pnames = rig ? patchNames(rig) : [];
   const setlists = Object.values(doc.setlists || {}).filter((sl) => sl.songs.some((song) => song.track === tid));
   const nextName = () => {
     if (!names.length) return null;
@@ -1087,7 +1096,7 @@ function TrackEditor({ s, doc, tid, go }) {
               ${names.map((n) => html`<option value=${n}>${n}</option>`)}
             </select>
             <span class="mono ${k < 0 ? "error" : "muted"}">${k < 0 ? "missing" : patchOf(rig, k)}</span>
-            ${k >= 0 ? html`<span class="lcd small-lcd">${`${short} ${name}`.trim().slice(0, NAME_LEN).padEnd(NAME_LEN)}</span>` : html`<span></span>`}
+            ${k >= 0 ? html`<span class="lcd small-lcd">${((pnames[k] || [""])[0]).padEnd(NAME_LEN)}</span>` : html`<span></span>`}
             <span class="row-actions">
               <button class="x" title="Duplicate" onClick=${() => edit((x) => { x.sequence.splice(i + 1, 0, name); })}>⧉</button>
               <button class="x" title="Remove" onClick=${() => edit((x) => { x.sequence.splice(i, 1); })}>×</button>

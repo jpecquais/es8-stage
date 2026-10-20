@@ -385,11 +385,13 @@ def check_rig(doc: dict, pedalboard: dict, where: str = "rig") -> dict:
         if name in seen:
             problems.append(f"{at}: the name {name!r} is used twice.")
         seen.add(name)
-        full = f"{short} {name}".strip()
-        if len(full) > NAME_LEN:
-            problems.append(f"{at}: patch name {full!r} is {len(full)} characters, {NAME_LEN} at most.")
-        if any(not 0x20 <= ord(c) <= 0x7E for c in full):
-            problems.append(f"{at}: patch name {full!r} must be plain ASCII.")
+        # Le nom du patch : `patch_name`, sinon `<short> <name>` raccourci au besoin (abbrev.patch_names).
+        if "patch_name" in snap:
+            pname = snap["patch_name"]
+            if not isinstance(pname, str) or len(pname) > NAME_LEN:
+                problems.append(f"{at}.patch_name: expected a string of {NAME_LEN} characters at most.")
+            elif any(not 0x20 <= ord(c) <= 0x7E for c in pname):
+                problems.append(f"{at}.patch_name: {pname!r} must be plain ASCII.")
         for token in snap.get("loops", []):
             loop = loop_name(token)
             if loop is None:
