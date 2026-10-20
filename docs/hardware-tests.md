@@ -38,6 +38,12 @@ Séance du 2026-10-20 (avec l'utilisateur à la pédale, patch sonde 97-1) : swi
 - Une fonction CTL_x sur un switch n'allume pas sa LED.
 - La fonction d'un switch vient du patch ou du système (Preference PAT/SYS, `ctl_sw`) ;
   les assignations sont toujours celles du patch courant.
+- **Switch MIDI on/off avec LED, et snapshots** (97-1 « Drive off », 97-2 « Drive on ») :
+  2 assignations TGL sur le switch (le CC bas/haut, sa LED 0/1). Au rappel d'un patch, la
+  LED part de `led_numX` du patch, mais la bascule de l'assignation repart de off : le
+  premier appui envoie MAX. Parade vérifiée : dans un patch où le paramètre est on,
+  inverser l'assignation (MIN = haut, MAX = bas ; LED MIN = 1, MAX = 0) et `led_numX` = 1 ;
+  le premier appui coupe, puis tout bascule. ✅ (MIDI relevé + LED vue par l'utilisateur.)
 
 ## Socle (ES8 Control, Designer, CLI)
 
@@ -52,8 +58,8 @@ Séance du 2026-10-20 (avec l'utilisateur à la pédale, patch sonde 97-1) : swi
 | # | Question | Type | État |
 |---|---|---|---|
 | D1 | ⛔ Un rig compilé, écrit, puis relu identique (`rig status` → `in_sync`) | ✍️ | ✅ 2 rigs + 2 setlists écrits (`--confirm` a renvoyé 3 pages perdues), relecture complète `in_sync` |
-| D2 | Au rappel d'un patch, les switches du mode manuel reprennent-ils l'état du patch ? | ✍️ 👀 | ouvert |
-| D3 | Un assign `NUMx → MIDI` en `TGL` : la LED suit-elle l'appui ? | ✍️ 👀 | ouvert |
+| D2 | Au rappel d'un patch, les switches du mode manuel reprennent-ils l'état du patch ? | ✍️ 👀 | ✅ en memory : la LED suit `led_numX`, la bascule d'assign repart de off (parade : assign inversé), voir la séance du 2026-10-20 |
+| D3 | Un assign `NUMx → MIDI` en `TGL` : la LED suit-elle l'appui ? | ✍️ 👀 | ✅ non toute seule ; oui avec une 2e assign TGL `LED_NUMx` 0/1 sur le switch |
 | D4 | Au rappel, les PC et CC attendus sortent-ils ? Un PC identique est-il renvoyé entre snapshots du même rig ? | ✍️ | ✅ PC et CC attendus ; le PC du rig repart à chaque snapshot. Rappeler le patch déjà chargé n'émet rien |
 | D5 | Encodages : `midi_pc` = 0 n'envoie rien ? `manual_number` = OFF ? | ✍️ 👀 | `midi_pc` = 0 : ✅ aucun PC, le CC part seul. `manual_number` : à voir |
 | D6 | La source d'assign « CC reçu » écoute-t-elle sur le canal de réception système ? | ✍️ | ouvert |
