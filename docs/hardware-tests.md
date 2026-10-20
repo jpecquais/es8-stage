@@ -45,6 +45,13 @@ Séance du 2026-10-20 (avec l'utilisateur à la pédale, patch sonde 97-1) : swi
   inverser l'assignation (MIN = haut, MAX = bas ; LED MIN = 1, MAX = 0) et `led_numX` = 1 ;
   le premier appui coupe, puis tout bascule. ✅ (MIDI relevé + LED vue par l'utilisateur.)
 
+Balayage des commandes éditeur `7F00`–`7F7F` inconnues (2026-10-20, DT1 de 2 octets en mode
+éditeur, donnée = n° du patch sonde, sauvegarde complète avant) : aucune réponse SysEx, rien
+d'autre de changé que le patch visé. **`7F02` = initialiser le patch n** (comme `7F21`) :
+à ne jamais envoyer. Une fonction CTL1–6, même en TGL, n'allume pas la LED du switch.
+Aucune commande LED trouvée côté logiciel ; l'éditeur officiel n'en a pas (il réécrit des
+patchs entiers).
+
 ## Socle (ES8 Control, Designer, CLI)
 
 | # | Question | Type | État |
