@@ -331,3 +331,6 @@ code { font-family: var(--font-mono); font-size: 0.9em; }
 @keyframes flash { 0% { opacity: 0; transform: translate(-50%, -40%) scale(0.95); } 12% { opacity: 1; transform: translate(-50%, -50%) scale(1); }
   70% { opacity: 1; } 100% { opacity: 0; transform: translate(-50%, -55%); } }
 @media (prefers-reduced-motion: reduce) { .sw-now.pulse, .step-flash { animation-duration: 1ms; } .step-flash { display: none; } }
+/* Shows de la bibliothèque du serveur */
+.lib-shows { display: grid; gap: 6px; margin-top: 8px; padding-top: 10px; border-top: 1px solid var(--line, #333); }
+.lib-show { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 40px; }

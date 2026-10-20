@@ -620,6 +620,32 @@ const MIDI_HELP = {
   denied: "MIDI access was refused. Allow it in the browser's site settings, then reload.",
 };
 
+/** Les shows de la bibliothèque du serveur (es8ctl web, le Pi) : en jouer un le donne à toutes les Companion. */
+function LibraryShows() {
+  const [listing, setListing] = useState(null);
+  const [busy, setBusy] = useState("");
+  const refresh = () => fetch("../library/").then((r) => (r.ok ? r.json() : null)).then(setListing).catch(() => setListing(null));
+  useEffect(() => { refresh(); }, []);
+  if (!listing) return null;
+  const play = async (name) => {
+    setBusy(name);
+    try {
+      await fetch(`../library/shows/${encodeURIComponent(name)}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: '{"op":"play"}' });
+    } finally { setBusy(""); refresh(); }
+  };
+  return html`
+    <div class="lib-shows">
+      <h3 class="eyebrow">Shows in the library</h3>
+      ${listing.shows.length ? listing.shows.map((it) => html`
+        <div class="lib-show">
+          <span>${it.name}</span>
+          ${it.name === listing.playing ? html`<span class="muted small">playing</span>`
+            : html`<button class="ghost" disabled=${!!busy} onClick=${() => play(it.name)}>${busy === it.name ? "…" : "Play"}</button>`}
+        </div>`)
+        : html`<p class="muted small">None yet: the Show button of ES8 Designer adds one.</p>`}
+    </div>`;
+}
+
 function Settings(ctx) {
   const { show, prefs, setPref, midi, ports, bindings, setBindings, learning, setLearning, setScreen, loadFile, loadDemo, error } = ctx;
   const fileInput = useRef(null);
@@ -644,6 +670,7 @@ function Settings(ctx) {
               onChange=${(e) => { loadFile(e.target.files[0]); e.target.value = ""; }} />
           </div>
           ${error && html`<p class="notice">${error}</p>`}
+          <${LibraryShows} />
         </section>
 
         <section class="box">

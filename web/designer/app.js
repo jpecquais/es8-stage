@@ -160,8 +160,15 @@ const COMPANION_INBOX = "es8companion/incoming";
 function exportShow(doc) {
   const r = call("show_export", JSON.stringify(doc));
   if (r.error) { toast(`No show: ${(r.problems || [r.error]).join(" ")}`, "error"); return; }
-  E.download(JSON.stringify(r.show, null, 2), `${slug(doc.name, [])}.show.json`, "application/json");
   try { localStorage.setItem(COMPANION_INBOX, JSON.stringify(r.show)); } catch { /* stockage plein : le fichier suffit */ }
+  if (library.state.available) { // rangé dans la bibliothèque sous le nom du projet, et joué
+    const name = (doc.name || "Show").replace(/[\\/:*?"<>|]/g, "-").replace(/^\.+/, "").slice(0, 80) || "Show";
+    library.playShow(r.show, name)
+      .then(() => toast(`Show "${name}" saved in the library and played: every open ES8 Companion takes it.`, "ok", 4000))
+      .catch((err) => toast(`Show not sent: ${err.message}`, "error"));
+    return;
+  }
+  E.download(JSON.stringify(r.show, null, 2), `${slug(doc.name, [])}.show.json`, "application/json");
   // Le serveur (es8ctl web, le Pi) le garde comme show courant : toutes les Companion ouvertes le prennent.
   fetch("../stage/show.json", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(r.show) })
     .then((res) => toast(res.ok ? "Show exported and sent to the server: every open ES8 Companion takes it." : "Show exported (file)."))
@@ -243,12 +250,137 @@ const project = {
     edit(next);
     this.replace(next);
   },
-  replace(doc) {
+  /** `fromLibrary` : le projet vient d'être lu dans la bibliothèque, inutile de l'y renvoyer. */
+  replace(doc, { fromLibrary = false } = {}) {
     this.doc = doc;
     try { localStorage.setItem(PROJECT_KEY, JSON.stringify(doc)); } catch { /* confort seulement */ }
     projectListeners.forEach((fn) => fn(doc));
+    if (!fromLibrary) library.touch();
   },
 };
+
+// ================================================================= bibliothèque de l'hôte (es8ctl web, le Pi)
+// Le projet ouvert depuis la bibliothèque y est enregistré à chaque changement ; Mac et iPad partagent ainsi
+// le même projet. En revenant sur la page, une version plus récente (écrite ailleurs) est reprise.
+const LIB = "../library/";
+const LIB_KEY = "es8designer.library";
+const libUrl = (kind, name) => `${LIB}${kind}/${encodeURIComponent(name)}`;
+async function libFetch(url, opts) {
+  const res = await fetch(url, opts);
+  if (!res.ok) {
+    let msg = `HTTP ${res.status}`;
+    try { msg = (await res.json()).error || msg; } catch { /* pas de JSON */ }
+    throw new Error(msg);
+  }
+  return res;
+}
+const library = {
+  state: { available: false, listing: null, current: null, status: "" },
+  listeners: new Set(),
+  timer: null,
+  seen: 0, // date (serveur) de la version du projet courant que l'on a
+  set(patch) { this.state = { ...this.state, ...patch }; this.listeners.forEach((fn) => fn(this.state)); },
+  remember(name) {
+    try { name ? localStorage.setItem(LIB_KEY, name) : localStorage.removeItem(LIB_KEY); } catch { /* rien */ }
+    this.set({ current: name });
+  },
+  async refresh() {
+    try {
+      const listing = await (await libFetch(LIB)).json();
+      this.set({ available: true, listing });
+      return listing;
+    } catch { this.set({ available: false }); return null; }
+  },
+  modified(listing, name) { return ((listing && listing.projects.find((p) => p.name === name)) || {}).modified || 0; },
+  async start() {
+    const listing = await this.refresh();
+    let name = null;
+    try { name = localStorage.getItem(LIB_KEY); } catch { /* rien */ }
+    if (!listing || !name) return;
+    if (!listing.projects.some((p) => p.name === name)) { this.remember(null); return; }
+    this.set({ current: name });
+    await this.pull(listing);
+    document.addEventListener("visibilitychange", () => { if (!document.hidden) this.pull(); });
+  },
+  /** Reprend le projet courant de la bibliothèque s'il a changé ailleurs (et rien n'attend d'être enregistré ici). */
+  async pull(listing) {
+    const name = this.state.current;
+    if (!name || this.timer) return;
+    listing = listing || (await this.refresh());
+    const m = this.modified(listing, name);
+    if (!m || m <= this.seen) return;
+    try {
+      const doc = await (await libFetch(libUrl("projects", name))).json();
+      this.seen = m;
+      project.replace(migrate(doc), { fromLibrary: true });
+      this.set({ status: "saved" });
+    } catch (err) { this.set({ status: `error: ${err.message}` }); }
+  },
+  async open(name) {
+    this.remember(name);
+    this.seen = 0;
+    await this.pull();
+    toast(`${name} opened from the library.`, "ok", 3000);
+  },
+  touch() {
+    if (!this.state.current) return;
+    clearTimeout(this.timer);
+    this.set({ status: "saving" });
+    this.timer = setTimeout(() => this.save(), 800);
+  },
+  async save(name = this.state.current, { create = false } = {}) {
+    clearTimeout(this.timer);
+    this.timer = null;
+    try {
+      await libFetch(libUrl("projects", name) + (create ? "?new" : ""), {
+        method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(project.doc) });
+      const listing = await this.refresh();
+      if (name === this.state.current || create) this.seen = this.modified(listing, name);
+      this.set({ status: "saved" });
+      return true;
+    } catch (err) {
+      this.set({ status: `error: ${err.message}` });
+      toast(`Not saved in the library: ${err.message}`, "error");
+      return false;
+    }
+  },
+  async saveAs(name) {
+    const listing = await this.refresh();
+    const exists = listing && listing.projects.some((p) => p.name === name);
+    if (exists && name !== this.state.current && !confirm(`${name} already exists in the library. Replace it with the current project?`)) return;
+    if (await this.save(name, { create: !exists })) { this.remember(name); toast(`Saved in the library as ${name}.`, "ok", 3000); }
+  },
+  /** POST {op} sur un élément ; rend la réponse JSON éventuelle. */
+  async op(kind, name, body) {
+    try {
+      const res = await libFetch(libUrl(kind, name), { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+      await this.refresh();
+      return res.status === 200 ? res.json() : {};
+    } catch (err) { toast(err.message, "error"); await this.refresh(); return null; }
+  },
+  async rename(kind, name, to) {
+    if (await this.op(kind, name, { op: "rename", to }) && kind === "projects" && name === this.state.current) this.remember(to);
+  },
+  async remove(kind, name) {
+    try {
+      await libFetch(libUrl(kind, name), { method: "DELETE" });
+      if (kind === "projects" && name === this.state.current) this.remember(null);
+    } catch (err) { toast(err.message, "error"); }
+    await this.refresh();
+  },
+  /** Le show du projet, rangé sous le nom du projet et joué par l'hôte. */
+  async playShow(show, name) {
+    await libFetch(libUrl("shows", name), { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(show) });
+    await libFetch(libUrl("shows", name), { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ op: "play" }) });
+    await this.refresh();
+  },
+};
+
+function useLibrary() {
+  const [st, setSt] = useState(library.state);
+  useEffect(() => { library.listeners.add(setSt); return () => library.listeners.delete(setSt); }, []);
+  return st;
+}
 
 function useStore() {
   const [state, setState] = useState(store.state);
@@ -388,6 +520,8 @@ function usePopover() {
 
 function Menu({ s, doc }) {
   const [open, setOpen, ref] = usePopover();
+  const [libOpen, setLibOpen] = useState(false);
+  const lib = useLibrary();
   const device = E.hasDevice();
   let state = "", text = "No MIDI port";
   if (s.midi === "unsupported") text = "Web MIDI unavailable";
@@ -399,6 +533,7 @@ function Menu({ s, doc }) {
     try {
       const next = JSON.parse(await file.text());
       if (next.schema !== "es8ctl.project/1") throw new Error("not an ES8 Designer project (es8ctl.project/1)");
+      library.remember(null); // un fichier ouvert n'est pas le projet de la bibliothèque
       project.replace(migrate(next));
       toast(`${file.name} opened.`, "ok", 3000);
     } catch (err) { toast(`Cannot open this project: ${err.message || err}`, "error"); }
@@ -434,26 +569,84 @@ function Menu({ s, doc }) {
           onChange=${(e) => { e.target.files[0] && E.openFile(e.target.files[0]); e.target.value = ""; setOpen(false); }} /></label>
         <div class="sep row">
           <b class="grow">Project</b>
-          <button class="btn small" onClick=${() => E.download(JSON.stringify(doc, null, 2), `${slug(doc.name, [])}.es8project.json`, "application/json")}
-            title="One file for es8ctl rig compile, or to open on another computer">Export</button>
+          ${lib.available ? html`<button class="btn small" onClick=${() => { setOpen(false); setLibOpen(true); library.refresh(); }}
+            title="Projects, shows and ES-8 backups kept on the stage host">Library…</button>` : null}
           <button class="btn small" onClick=${() => exportShow(doc)}
             title="The setlists as a show file for ES8 Companion, the stage app">Show</button>
-          <label class="btn small">Open<input type="file" accept=".json" hidden
-            onChange=${(e) => { e.target.files[0] && importProject(e.target.files[0]); e.target.value = ""; setOpen(false); }} /></label>
         </div>
+        ${lib.available ? html`<p class="small muted">${lib.current
+          ? html`In the library as <b>${lib.current}</b> · ${libStatus(lib.status)}`
+          : "Kept in this browser only: save it in the library to open it on another screen."}</p>` : null}
         <label>Project name<input value=${doc.name || ""} onInput=${(e) => project.update((d) => { d.name = e.target.value; })} /></label>
         <div class="row">
-          <button class="link" onClick=${() => { if (confirm("Replace the project with the example?")) project.replace(clone(EXAMPLE)); }}>Load the example</button>
+          <button class="btn small" onClick=${() => E.download(JSON.stringify(doc, null, 2), `${slug(doc.name, [])}.es8project.json`, "application/json")}
+            title="One file for es8ctl rig compile, or to open on another computer">Export file</button>
+          <label class="btn small">Open file<input type="file" accept=".json" hidden
+            onChange=${(e) => { e.target.files[0] && importProject(e.target.files[0]); e.target.value = ""; setOpen(false); }} /></label>
+        </div>
+        <div class="row">
+          <button class="link" onClick=${() => { if (confirm("Replace the project with the example?")) { library.remember(null); project.replace(clone(EXAMPLE)); } }}>Load the example</button>
           <button class="link danger" onClick=${() => {
-            if (confirm("Start an empty project? The current one is lost unless exported.")) {
+            if (confirm(lib.current ? "Start an empty project? The library keeps the current one." : "Start an empty project? The current one is lost unless exported.")) {
+              library.remember(null);
               project.replace({ schema: "es8ctl.project/1", name: "New project",
                 pedalboard: { schema: "es8ctl.pedalboard/2", devices: {} }, surfaces: {}, rigs: {}, tracks: {}, setlists: {} });
             }
           }}>Start empty</button>
         </div>
-        <p class="muted small sep">The project is kept in this browser. Classic patch editing: <a href="../control/">ES8 Control</a>.
+        <p class="muted small sep">${lib.current ? "The project is saved in the library at each change." : "The project is kept in this browser."} Classic patch editing: <a href="../control/">ES8 Control</a>.
           Free software under the AGPL-3.0 · <a href="https://github.com/jpecquais/es8" target="_blank" rel="noopener">source</a></p>
       </div>` : null}
+      ${libOpen ? html`<${LibraryDialog} lib=${lib} doc=${doc} onClose=${() => setLibOpen(false)} />` : null}
+    </div>`;
+}
+
+const libStatus = (st) => (st === "saving" ? "saving…" : st === "saved" ? "saved" : st.startsWith("error") ? html`<span class="error">${st}</span>` : "");
+const libDate = (t) => new Date(t * 1000).toLocaleString([], { dateStyle: "short", timeStyle: "short" });
+const LIB_SECTIONS = [
+  ["projects", "Projects", "ES8 Designer projects: open one here, on the Mac or on the iPad, and it stays in sync."],
+  ["shows", "Shows", "What ES8 Companion plays. The Show button of the menu saves the project's show here and plays it."],
+  ["backups", "ES-8 backups", "SysEx dumps of the whole ES-8."],
+];
+
+function LibraryDialog({ lib, doc, onClose }) {
+  const [name, setName] = useState(doc.name || "");
+  const listing = lib.listing || { projects: [], shows: [], backups: [] };
+  const ask = (what, current) => { const to = prompt(what, current); return to && to.trim() && to.trim() !== current ? to.trim() : null; };
+  const actions = (kind, it) => {
+    const out = [];
+    if (kind === "projects") {
+      out.push(it.name === lib.current ? html`<span class="badge sync">open</span>`
+        : html`<button class="btn small" onClick=${() => { library.open(it.name); onClose(); }}>Open</button>`);
+    }
+    if (kind === "shows") {
+      out.push(it.name === listing.playing ? html`<span class="badge sync">playing</span>`
+        : html`<button class="btn small" onClick=${() => library.op("shows", it.name, { op: "play" }).then((r) => r && toast(`${it.name} is played now.`, "ok", 3000))}>Play</button>`);
+    }
+    if (kind !== "backups") out.push(html`<button class="link" onClick=${() => library.op(kind, it.name, { op: "duplicate" })}>Duplicate</button>`);
+    out.push(html`<button class="link" onClick=${() => { const to = ask("New name", it.name); if (to) library.rename(kind, it.name, to); }}>Rename</button>`);
+    out.push(html`<a class="link" href=${libUrl(kind, it.name) + "?download"} download>Download</a>`);
+    out.push(html`<button class="link danger" onClick=${() => confirm(`Delete ${it.name}? This cannot be undone.`) && library.remove(kind, it.name)}>Delete</button>`);
+    return out;
+  };
+  return html`
+    <div class="overlay" onPointerDown=${(e) => e.target === e.currentTarget && onClose()}>
+      <div class="dialog library" role="dialog" aria-label="Library">
+        <header class="row"><h3 class="grow">Library on the stage host</h3><button class="x" onClick=${onClose} aria-label="Close">×</button></header>
+        <form class="row" onSubmit=${(e) => { e.preventDefault(); name.trim() && library.saveAs(name.trim()); }}>
+          <input class="grow" value=${name} onInput=${(e) => setName(e.target.value)} placeholder="Name" />
+          <button class="btn primary small" disabled=${!name.trim()}>Save the current project here</button>
+        </form>
+        ${LIB_SECTIONS.map(([kind, title, help]) => html`
+          <section>
+            <h4>${title}</h4>
+            <p class="small muted">${help}</p>
+            ${listing[kind].length ? html`<ul class="lib-list">${listing[kind].map((it) => html`
+              <li><span class="grow"><b>${it.name}</b> <span class="small muted">${libDate(it.modified)}</span></span>
+                <span class="row">${actions(kind, it)}</span></li>`)}</ul>`
+              : html`<p class="small muted">None yet.</p>`}
+          </section>`)}
+      </div>
     </div>`;
 }
 
@@ -1559,3 +1752,4 @@ function DeviceCard({ did, d, view, edit }) {
 
 render(html`<${App} />`, document.getElementById("root"));
 E.boot();
+library.start();

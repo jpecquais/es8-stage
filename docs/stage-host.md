@@ -78,6 +78,17 @@ Sur le Pi (`~/.local/share/es8ctl/library/`) :
 - **Sauvegardes de l'ES-8** (dumps `.syx`), avec « restaurer ».
 - Actions : choisir le show joué, ouvrir, dupliquer, renommer, supprimer,
   importer, télécharger (copie sur le Mac).
+- HTTP (`es8ctl/library.py`, servi par tout `es8ctl web`, pas seulement
+  `--stage`) : `GET /library/` (la liste et le show joué) ;
+  `GET|PUT|DELETE /library/<projects|shows|backups>/<nom>` (`?download` :
+  en pièce jointe ; `PUT …?new` : refusé si le nom existe) ;
+  `POST /library/<sorte>/<nom>` `{op: rename, to}`, `{op: duplicate}`,
+  `{op: play}` (shows : copié dans `show.json`, noté dans `playing.json`).
+- Designer : « Library… » dans le menu ; un projet ouvert depuis la
+  bibliothèque y est enregistré à chaque changement (0,8 s après), et repris
+  en revenant sur la page s'il a changé ailleurs (le dernier qui écrit gagne).
+  Le bouton Show range le show sous le nom du projet et le joue. Companion :
+  « Shows in the library » dans les réglages, avec Play.
 
 ### Réseau
 
@@ -111,7 +122,7 @@ effacer un set) ; la Companion reste ouverte sans mot de passe.
    courant n'importe quand. Le show et la position vivent dans une petite
    zone inscriptible (ou sont réécrits à chaque changement de show).
 3. Accès : SSH par clé (utilisateur `es8`) ; `pedalbrain.local` sur le réseau.
-4. Écran : n'importe quel navigateur du réseau sur `http://pedalbrain.local:8765/`.
+4. Écran : n'importe quel navigateur du réseau sur `http://pedalbrain.local/` (port 80).
    Sur scène, le Pi peut ouvrir son propre point d'accès Wi-Fi (plus tard).
 
 ## Ordre de travail
@@ -123,7 +134,9 @@ service systemd, point d'accès.
 1. ✅ **Pont MIDI** + choix automatique dans `engine.js` + verrou de scène
    (2026-10-20 : ES8 Control ouvert sur le Mac depuis `pedalbrain.local` lit
    l'ES-8 par le Pi en 19 s ; une écriture hors mode édition rend 423).
-2. **Bibliothèque** : projets du Designer et shows gardés sur le Pi.
+2. ✅ **Bibliothèque** : projets du Designer et shows gardés sur le Pi
+   (2026-10-20 ; sauvegardes `.syx` : rangement et téléchargement seulement,
+   « restaurer » viendra avec la page de l'hôte).
 3. **Page de l'hôte** : bibliothèque, système.
 4. **Réseau** : bascule réseau connu / point d'accès, réglages et garde-fou.
 5. Lecture seule, mise à jour du programme depuis la page.

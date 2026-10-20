@@ -411,3 +411,17 @@ input[type="number"] { width: 64px; font-family: var(--font-mono); }
 }
 .pop .stage-host { display: grid; gap: 6px; padding-bottom: 10px; border-bottom: 1px solid var(--line); }
 .pop .stage-host label.check { display: flex; align-items: center; gap: 8px; color: var(--ink); font-size: 13px; }
+
+/* ---------------------------------------------------------------- bibliothèque de l'hôte */
+.overlay { position: fixed; inset: 0; z-index: 40; display: grid; place-items: start center; padding: 6vh 16px;
+  background: color-mix(in srgb, var(--bg, #000) 55%, transparent); overflow: auto; }
+.dialog { width: min(640px, 100%); display: grid; gap: 14px; padding: 18px; background: var(--panel);
+  border: 1px solid var(--line); border-radius: 12px; box-shadow: 0 16px 40px var(--shadow); }
+.dialog h3, .dialog h4 { margin: 0; }
+.dialog section { display: grid; gap: 6px; border-top: 1px solid var(--line); padding-top: 12px; }
+.dialog p { margin: 0; }
+.lib-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
+.lib-list li { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; padding: 6px 4px; border-radius: 6px; }
+.lib-list li:hover { background: var(--surface); }
+.lib-list .row { gap: 10px; font-size: 13px; }
+.lib-list a.link { font-size: 13px; }
