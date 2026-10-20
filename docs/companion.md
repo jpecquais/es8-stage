@@ -1,47 +1,55 @@
-# ES8 Companion : l'app de scène
+# ES8 Companion : le cerveau de scène
 
-Une app web légère, sur téléphone ou tablette, qui joue une setlist pendant
-le concert. Elle reçoit les appuis d'un contrôleur (n'importe lequel),
-envoie à l'ES-8 le Program Change du pas voulu, et affiche où on en est :
-morceau, pas précédent, en cours et suivant, surface de l'ES-8.
+Une app web qui tourne pendant le concert, sur un Raspberry Pi (ou une
+tablette, un ordinateur) relié à l'ES-8. Elle avance dans la setlist,
+traduit les appuis sur les switches de l'ES-8 en messages pour les machines
+(Ableton, Valeton, Quimera…), et affiche où on en est et l'état de chaque
+switch.
 
-Statut : v1 codée le 2026-10-19 (`web/companion/`, `es8ctl rig show`), pas
-encore essayée avec l'ES-8. Maquette d'interface :
-https://claude.ai/artifact/2FnJ4veQqMf1vMe9f19kWM. Modèle sur lequel elle
-s'appuie : `docs/rig-model.md` (rigs, tracks, setlists, `pc_map`).
+Statut : v1 (navigation) codée et vérifiée sur l'ES-8 le 2026-10-19 ;
+v2 (la Companion tient la logique des switches) décidée et en cours le
+2026-10-20. Modèle : `docs/rig-model.md`. Essais matériel :
+`docs/hardware-tests.md`.
 
-## Frontières
+## Partage des rôles (décidé le 2026-10-20)
 
-| | ES8 Designer | ES8 Companion | ES-8 |
-|---|---|---|---|
-| Édite pedalboard, rigs, tracks, setlists | oui | non | — |
-| Compile et écrit (SysEx) | oui | **non** | stocke les banques et la `pc_map` |
-| Pyodide, moteur `es8core` | oui | **non** | — |
-| Navigation pendant le concert | — | PC *i* = pas *i* | `pc_map` : PC *i* → patch |
+L'ES-8 ne sait pas servir de pédalier MIDI seul : aucun MIDI en mode
+manuel, LED non pilotables, bascules remises à zéro à chaque patch, 12
+assignations par patch. La règle :
 
-Décisions actées :
+| Ce qui… | Qui | Comment |
+|---|---|---|
+| doit être juste **à l'arrivée sur un snapshot** : boucles, programmes, état de départ des paramètres | **ES-8** | messages MIDI du patch, envoyés au rappel ; restent justes si la Companion tombe (rappel au panneau) |
+| se passe **pendant le morceau** : avancer, bascules, crans, secours | **Companion** | reçoit les appuis, tient l'état, envoie aux machines, affiche |
+| les **switches** | ES-8 | de simples boutons : un CC fixe par switch vers la Companion |
 
-- La setlist reste compilée dans la `pc_map` de l'ES-8 (`rig-model.md`). La
-  Companion n'est qu'une source de PC parmi d'autres : un contrôleur qui
-  compte ses PC joue la même setlist sans elle.
-- Facultative : si la tablette lâche, on choisit les patchs sur l'ES-8.
-  Aucun système de secours.
-- Générique : aucun contrôleur, adaptateur ou appareil n'est privilégié.
-  L'ES-8 utilisé comme contrôleur n'est qu'un préréglage d'entrée.
-- La Companion ne calcule rien : elle lit un fichier **show** exporté par
-  la lib Python et joue sa liste de pas.
-- Elle n'affiche aucun état en direct (switches ou loops ON/OFF) : la
-  surface est un aide-mémoire de disposition, pas un retour d'état.
+Décisions :
+
+- **La Companion est indispensable pour jouer** (navigation et gestes). Sans
+  elle, chaque snapshot reste rappelable au panneau de l'ES-8, avec le bon
+  son ; c'est le seul filet, assumé.
+- La setlist reste compilée dans la `pc_map` de l'ES-8 (PC *i* = pas *i*).
+- Le Designer reste le seul endroit où l'on édite : il range lui-même
+  l'état des snapshots dans l'ES-8 et la logique des switches dans le show.
+- La Companion ne calcule rien de musical : elle lit le **show** exporté par
+  la lib Python.
 - Interface en anglais.
 
 ## Flux
 
 ```
-contrôleur ──(CC, note, touche, écran)──▶ Companion ──PC i──▶ ES-8
-(ES-8, pédalier MIDI, pédale BT…)            │              (pc_map → patch)
-                                             └─ affichage
-Designer / es8ctl ──show.json──▶ Companion   (avant le concert)
+switch de l'ES-8 ──CC (canal Companion, 1 CC par switch)──▶ Companion
+Companion ──CC0 + PC i──▶ ES-8 MIDI IN ──(pc_map)──▶ patch : boucles + messages du patch
+Companion ──CC des gestes──▶ ES-8 MIDI IN ──Thru──▶ ES-8 MIDI OUT ──▶ machines
+Designer ──show.json──▶ Companion   (avant le concert)
 ```
+
+- Une seule sortie MIDI pour la Companion : la prise MIDI IN de l'ES-8. La
+  prise MIDI OUT de l'ES-8 est en **Thru** (réglage écrit par le Designer
+  dès qu'une surface passe par la Companion) : elle recopie ce qu'elle
+  reçoit et ajoute les messages des patchs (vérifié, D8).
+- Le PC *i* sur le canal de l'ES-8 et la Bank Select ressortent aussi en
+  Thru : les machines doivent écouter d'autres canaux.
 
 ## Le fichier show (`es8ctl.show/1`)
 
@@ -79,16 +87,20 @@ Autonome : pas de chemin ni de référence à résoudre.
       "surface": {
         "name": "Lead 4 + 4",
         "switches": {
-          "NUM1": {"label": "Drive", "role": "param", "mode": "toggle", "target": "DAW · Drive"},
+          "NUM1": {"label": "Drive", "role": "param", "mode": "toggle", "target": "DAW · Drive",
+                   "channel": 1, "cc": 18, "on": 127, "off": 0, "param": "daw.drive"},
+          "BANK_U": {"label": "Next", "role": "companion", "target": "next"},
           "NUM5": {"label": "Overdrive", "role": "loop", "target": "L2"},
           "NUM8": {"label": "Tap", "role": "tap"}
         }
       },
+      "states": {"Verse": {"daw.drive": 0}, "Solo": {"daw.drive": 127}},
       "chain": [{"loop": "L2", "device": "Overdrive"}, {"loop": "L5", "device": "Modulation"}],
       "programs": [{"device": "DAW", "program": "Crunch Lead", "pc": 12}],
       "snapshot_programs": {"Solo": [{"device": "DAW", "program": "PC 40", "pc": 40}]}
     }
   },
+  "controls": {"channel": 16, "switches": {"NUM1": 80, "BANK_U": 91}},
   "input_preset": {
     "source": "surface Lead 4 + 4",
     "bindings": [
@@ -109,7 +121,13 @@ Autonome : pas de chemin ni de référence à résoudre.
   la Companion affiche.
 - `songs[].name` : nom du track ; un morceau écrit sur place dans la
   setlist prend son `name` s'il en a un, sinon le nom du rig.
-- `input_preset` : facultatif (voir « L'ES-8 comme contrôleur »).
+- `input_preset` : facultatif ; les actions `companion` des surfaces, pour
+  les autres sources d'entrée (voir « Entrée »).
+- `controls` : canal et CC de chaque switch de l'ES-8 (voir « Les switches
+  de l'ES-8 »).
+- `rigs[].surface.switches` : pour un `param`, l'appareil, son canal, son CC,
+  ses valeurs `on`/`off` et son mode ; `rigs[].states` : l'état de départ de
+  chaque paramètre de la surface, par snapshot.
 - `steps[].backup` : facultatif. Le patch de secours du pas et son PC dans
   la même banque MIDI (en haut de la `pc_map`). L'action `backup` de la
   Companion (bouton, switch) bascule : chaque pas envoie alors le PC de son
@@ -156,80 +174,83 @@ de la touche). Règles :
   compte qu'une fois.
 - La table est stockée sur l'appareil. Le préréglage du show la remplit au
   premier chargement ; « Restore preset » y revient.
+- Un CC de l'ES-8 (canal et numéro de `controls`) passe avant la table : la
+  Companion cherche le rôle de ce switch dans le rig en cours.
 
 ## Sortie
 
 - PC *i* sur le canal de réception de l'ES-8 (`es8.rx_channel`, modifiable
-  dans les réglages).
-- Aux bouts de la setlist, `next` et `prev` ne font rien (rien n'est
-  envoyé).
-- Après un rechargement de l'app, la position est restaurée **sans rien
-  envoyer**. Toucher la carte « Now » renvoie le PC du pas en cours (utile
-  après un redémarrage de l'ES-8).
-- Chaque pas part en deux messages : Bank Select CC0 = banque MIDI de la
-  setlist, puis PC *i*. Toutes les setlists se jouent (CC0 vérifié sur
-  l'ES-8 ; CC32 est ignoré). Le CC0 est renvoyé à chaque pas : un autre
-  contrôleur a pu changer de banque entre-temps.
+  dans les réglages), précédé de Bank Select CC0 = banque MIDI de la
+  setlist (vérifié ; CC32 ignoré). Le CC0 est renvoyé à chaque pas.
+- Aux bouts de la setlist, `next` et `prev` ne font rien.
+- Après un rechargement, la position est restaurée **sans rien envoyer**.
+  Toucher « Now » renvoie le PC du pas en cours.
+- Gestes : le CC du paramètre sur le canal de son appareil, par la même
+  sortie (l'ES-8 le recopie en Thru).
 
-## L'ES-8 comme contrôleur (préréglage)
+## Les switches de l'ES-8 (v2)
 
-Pour piloter la Companion avec les switches de l'ES-8 :
+Dans le Designer, une surface donne un rôle à chaque switch. Deux familles :
 
-- Dans la surface, un switch au rôle `companion` avec son action
-  (`{"role": "companion", "action": "next"}`). La Companion n'est pas un
-  appareil du pedalboard : elle ne fait que recevoir ces CC.
-- Le projet fixe le canal et le CC de chaque action (`"companion":
-  {"channel": 16, "cc": {"next": 80, …}}`, ces valeurs par défaut) ; le
-  canal ne peut être celui d'aucun appareil MIDI.
-- Le switch devient un assign momentané. Sur BANK ▲▼, MEM/MAN ou MUTE, sa
-  fonction propre est coupée (`ctl_func` OFF) : seule la Companion change
-  de patch.
-- `export_show` en tire `input_preset` : rien à apprendre pour cet usage.
-- Format ancien, encore lu : un appareil MIDI `"companion": true` dont les
-  paramètres portent le nom des actions. Le Designer le convertit à
-  l'ouverture (aussi un appareil nommé « … Companion » déclaré à la main).
+| Rôle | Tenu par | Sur l'ES-8 |
+|---|---|---|
+| `param` (bascule ou momentané d'un paramètre MIDI) | Companion | assignation momentanée : CC du switch vers la Companion |
+| `companion` (next, prev, next_song, prev_song, song_start, backup) | Companion | idem |
+| `loop`, `tap`, `es8` | ES-8 (natif) | inchangé |
 
-Ce préréglage dépend du test H5 (quels switches envoient un CC en mode
-patch) ; la v1 n'en a pas besoin : l'apprentissage couvre tous les
-contrôleurs.
+- **Un CC fixe par switch**, pas par action : canal `companion.channel`
+  (16 par défaut), CC = `companion.first_cc` (80) + rang du switch
+  (NUM1…NUM8, MEM/MAN, MUTE, BANK ▼, BANK ▲, CTL IN 1–4 → 80…95). Le même
+  switch peut donc faire autre chose dans un autre rig : c'est la Companion
+  qui lit son rôle dans le rig en cours.
+- L'assignation est momentanée : 127 à l'appui, 0 au relâchement (il faut
+  le relâchement pour un paramètre momentané). 1 assignation par switch :
+  12 switches au plus par patch.
+- La fonction propre du switch est coupée (`ctl_func` OFF) : il ne rappelle
+  plus de patch, ne change plus de banque. Mode memory (en manuel, l'ES-8
+  n'envoie aucun MIDI).
+- Le canal de la Companion ne peut être celui d'aucun appareil MIDI.
+- Format ancien (un CC par action, ou un appareil `companion`) : relu et
+  converti.
+
+**Ce que fait la Companion d'un appui** (rig du pas en cours) :
+
+- `companion` : l'action (avancer, secours…).
+- `param` en bascule : l'état du paramètre passe de off à on (ou l'inverse),
+  la Companion envoie `on`/`off` de ce paramètre sur le canal de son
+  appareil. Momentané : `on` à l'appui, `off` au relâchement.
+- À chaque changement de pas, l'état repart de celui du snapshot (les
+  messages du patch ont déjà envoyé ces valeurs).
+- Le panneau affiche l'état de chaque switch (allumé / éteint), à la place
+  des LED de l'ES-8.
 
 ## Écrans
 
 Voir la maquette.
 
-- **Stage** (tablette, téléphone vertical, téléphone horizontal) : morceau
-  (le titre ouvre la liste des morceaux), déroulé du morceau, cartes
-  Previous / Now / Next, gros boutons Previous / Next. Sur tablette, un
-  panneau repliable : morceau suivant, switches de l'ES-8 (vue Manual par
-  défaut : la surface ; vue Patch : les snapshots de la banque), ordre de la
-  chaîne, programmes chargés.
-- **Setlists** : onglets par setlist, morceaux et pas (toucher = y aller),
-  show chargé.
+- **Stage** : morceau (le titre ouvre la liste des morceaux), déroulé, cartes
+  Previous / Now / Next, gros boutons. Panneau : morceau suivant, **switches
+  de l'ES-8 avec leur état** (allumé / éteint) et leur nom dans ce rig, ordre
+  de la chaîne, programmes.
+- **Setlists** : onglets par setlist, morceaux et pas (toucher = y aller).
 - **Settings** : sortie (port, canal), entrée (port, clavier), table
-  d'actions avec apprentissage, écran (rester allumé, vue des switches par
-  défaut).
+  d'actions avec apprentissage, écran.
 
 ## Technique
 
-- `web/companion/`, site statique, servi avec les autres apps (même
-  origine). Pas de Pyodide, pas d'`engine.js` ; peut reprendre Preact de
-  `web/shared/vendor`.
-- Web MIDI **sans** SysEx (`requestMIDIAccess({sysex: false})`) : demande
-  de permission plus légère.
-- Transport isolé derrière une petite interface (`ports()`, `open(in,
-  out)`, `send(bytes)`, `onMessage`, `onPortsChange`) : Web MIDI d'abord ;
-  un pont natif iOS plus tard sans toucher au reste.
-- PWA : manifeste, service worker (fonctionne hors ligne), Screen Wake Lock.
-- Stockage local (`localStorage`) : show chargé, position, ports, table
-  d'entrée, préférences d'affichage.
-- Charger un show : sélecteur de fichier ; ou, sur le même appareil,
-  Designer le dépose pour la Companion (même origine).
-- Plateformes v1 : navigateurs Chromium (Android, ordinateur). iOS (Safari
-  n'a pas Web MIDI) : en attendant, un navigateur Web MIDI de l'App Store
-  (MIDIWeb Browser, Web MIDI Browser) ; plus tard, une coquille native fine.
-- Essai sur tablette ou téléphone : `es8ctl web --lan` sert aussi sur le
-  réseau local et affiche l'adresse. En HTTP simple, ni hors ligne ni
-  Wake Lock (contexte non sécurisé) ; pour la scène, le site en HTTPS.
+- `web/companion/`, site statique. Pas de Pyodide. Web MIDI sans SysEx.
+  Transport isolé (`ports()`, `use(in, out)`, `send`, `onMessage`,
+  `onPortsChange`).
+- PWA (hors ligne), Screen Wake Lock, `localStorage` (show, position,
+  ports, table d'entrée, préférences).
+- **Hôte de scène : un Raspberry Pi** (3B+ ou Zero 2 W) avec un écran ou une
+  tablette en affichage. À traiter comme une pédale : démarrage
+  automatique, système en lecture seule (coupures de courant), MIDI filaire
+  par une interface USB-MIDI DIN (pas de Bluetooth sur scène). À spécifier
+  à part (`docs/stage-host.md`, à écrire).
+- Autres hôtes possibles pour répéter : Chrome sur ordinateur ou Android ;
+  iOS par un navigateur Web MIDI. `es8ctl web --lan` sert sur le réseau
+  local.
 
 ## Côté modèle (`es8core`)
 
