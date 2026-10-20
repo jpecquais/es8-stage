@@ -1,21 +1,24 @@
-"""Noms de patch : `<short> <snapshot>` raccourci aux 16 caractères de l'écran de l'ES-8.
+"""Noms de patch : `<short> <snapshot>` compressé aux 16 caractères de l'écran de l'ES-8.
 
 Le nom du snapshot reste libre (morceaux, Companion) ; seul le nom écrit
-dans le patch est réduit, par étapes, de la plus lisible à la plus brutale,
-en s'arrêtant dès que ça tient :
+dans le patch est compressé. Ce n'est pas une coupe : les caractères
+disponibles sont répartis entre les mots pour garder le plus d'information
+lisible possible.
 
-1. Accents retirés, ponctuation → espace (l'ES-8 n'affiche que l'ASCII).
-2. Mots vides retirés (a, the, of, de, la…), sauf le premier et le dernier.
-3. Voyelles retirées des mots du milieu, du plus long au plus court
-   (« Freedom » → « Frdm ») ; la première lettre reste.
-4. Mots du milieu coupés à 3 lettres.
-5. Mots du milieu réduits à leurs initiales, collées (« Great Day Freedom » → « GDF »).
-6. Voyelles retirées de la section, puis du `short`, puis espaces retirés,
-   puis coupe à 16.
-
-Le `short` du rig (premier mot) et le dernier mot du snapshot (la section :
-Intro, Solo…) sont gardés le plus longtemps : ce sont eux qu'on cherche des
-yeux sur l'écran.
+- Le `short` du rig est gardé tel quel (on le cherche des yeux), sauf s'il
+  prend plus de la moitié de l'écran.
+- Le snapshot est découpé en titre et section : la section est ce qui suit
+  le dernier séparateur (« A Great Day For Freedom - Intro » → « Intro »),
+  ou un dernier mot connu (Intro, Verse, Solo, Outro, Couplet…), avec son
+  numéro (« Part 2 »). La section pèse plus que chaque mot du titre.
+- Les mots vides (a, the, for, de, la…) sont retirés.
+- Chaque mot peut s'écrire en entier, sans ses voyelles intérieures
+  (« Freedom » → « Frdm »), par ses premières lettres, par son initiale, ou
+  disparaître. Les premiers mots du titre pèsent plus que les suivants.
+- Les mots du titre se collent en CamelCase (« GrtDayFrdm ») plutôt que de
+  perdre un caractère par espace ; titre et section restent séparés.
+- Une recherche exhaustive (programmation dynamique sur le budget de
+  caractères) choisit la combinaison qui garde le plus d'information.
 """
 
 from __future__ import annotations
@@ -26,10 +29,17 @@ import unicodedata
 from ..names import NAME_LEN
 
 STOP_WORDS = {
-    "a", "an", "the", "of", "for", "to", "in", "on", "and", "at", "by", "with",
-    "de", "du", "des", "la", "le", "les", "l", "d", "et", "un", "une", "au", "aux", "en",
+    "a", "an", "the", "of", "for", "to", "in", "on", "and", "at", "by", "with", "is", "are", "this", "that",
+    "it", "very", "from", "as", "or",
+    "de", "du", "des", "la", "le", "les", "l", "d", "et", "un", "une", "au", "aux", "en", "ou", "pour", "sur",
+}
+SECTIONS = {
+    "intro", "verse", "prechorus", "pre", "chorus", "bridge", "solo", "outro", "break", "breakdown", "riff",
+    "theme", "lead", "clean", "crunch", "end", "ending", "coda", "interlude", "part", "drop", "build", "hook",
+    "refrain", "couplet", "pont", "fin", "pad", "rhythm",
 }
 VOWELS = set("aeiouyAEIOUY")
+SEPARATORS = re.compile(r"\s+[-–—/]\s+|\s*[|:]\s*")
 
 
 def ascii_words(text: str) -> list[str]:
@@ -39,55 +49,97 @@ def ascii_words(text: str) -> list[str]:
 
 
 def _devowel(word: str) -> str:
+    """Voyelles intérieures retirées (« Freedom » → « Frdm ») ; les nombres et mots courts restent."""
     if len(word) <= 3 or word.isdigit():
         return word
     return word[0] + "".join(c for c in word[1:] if c not in VOWELS)
 
 
+def _cap(word: str) -> str:
+    return word[:1].upper() + word[1:]
+
+
+def _forms(word: str) -> list[tuple[str, float]]:
+    """Écritures possibles d'un mot, et la part d'information qu'elles gardent (1 = le mot entier)."""
+    if word.isdigit():
+        return [(word, 1.0)]
+    forms = {word: 1.0}
+    dv = _devowel(word)
+    if dv != word:
+        forms[dv] = 0.8
+        for k in range(2, len(dv)):
+            forms.setdefault(dv[:k], min(0.7, 0.2 + 0.13 * k))
+    for k in range(2, len(word)):
+        forms[word[:k]] = max(forms.get(word[:k], 0), min(0.75, 0.2 + 0.13 * k))
+    forms[word[0]] = max(forms.get(word[0], 0), 0.3)
+    return list(forms.items())
+
+
+def _split(snapshot: str) -> tuple[list[str], list[str]]:
+    """Snapshot → (mots du titre, mots de la section)."""
+    parts = SEPARATORS.split(snapshot.strip())
+    if len(parts) > 1 and ascii_words(parts[-1]):
+        title, section = ascii_words(" ".join(parts[:-1])), ascii_words(parts[-1])
+    else:
+        words = ascii_words(snapshot)
+        k = len(words) - 1
+        if k >= 1 and words[k].isdigit() and len(words[k]) <= 2:
+            k -= 1  # « Part 2 », « Verse 1 »
+        if k >= 1 and words[k].lower() in SECTIONS:
+            title, section = words[:k], words[k:]
+        else:
+            title, section = words, []
+    kept = [w for w in title if w.lower() not in STOP_WORDS]
+    return kept or title[:1], section
+
+
+def _best(title: list[str], section: list[str], budget: int) -> str:
+    """Meilleure écriture « titre section » en `budget` caractères au plus."""
+    words = [(w, 1.0 / (1 + 0.3 * i), "t") for i, w in enumerate(title)]
+    words += [(w, 1.5 if j == 0 else 1.1, "s") for j, w in enumerate(section)]
+    # Pour chaque longueur utilisée : (information gardée, texte, rôle du dernier mot gardé).
+    states: dict[int, tuple[float, str, str | None]] = {0: (0.0, "", None)}
+    for word, weight, role in words:
+        nxt: dict[int, tuple[float, str, str | None]] = {}
+
+        def keep(length, value, text, last):
+            if length <= budget and (length not in nxt or nxt[length][0] < value):
+                nxt[length] = (value, text, last)
+
+        for used, (value, text, last) in states.items():
+            keep(used, value, text, last)  # le mot disparaît
+            for form, quality in _forms(word):
+                gain = weight * quality
+                form = _cap(form)
+                if last is None:
+                    keep(used + len(form), value + gain, form, role)
+                elif last == role == "t":  # dans le titre : CamelCase, ou un espace s'il reste de la place
+                    keep(used + len(form), value + gain - 0.02, text + form, role)
+                    keep(used + 1 + len(form), value + gain, f"{text} {form}", role)
+                else:
+                    keep(used + 1 + len(form), value + gain, f"{text} {form}", role)
+        states = nxt
+    return max(states.values(), key=lambda s: (s[0], -len(s[1])))[1]
+
+
 def abbreviate(short: str, snapshot: str, limit: int = NAME_LEN) -> str:
-    """`<short> <snapshot>` réduit à `limit` caractères (voir le module)."""
-    head = ascii_words(short)
-    words = ascii_words(snapshot)
-    full = " ".join(head + words)
+    """`<short> <snapshot>` compressé à `limit` caractères (voir le module)."""
+    head = " ".join(ascii_words(short))
+    full = " ".join(filter(None, [head, " ".join(ascii_words(snapshot))]))
     if len(full) <= limit:
         return full
-    # Le milieu : les mots du snapshot sauf le dernier (la section), qu'on réduit d'abord.
-    # Un numéro final reste avec le mot qui le précède (« Part 2 »).
-    keep = 2 if len(words) > 2 and len(words[-1]) <= 2 else 1
-    last = words[-keep:]
-    middle = words[:-keep]
-
-    def text(mid, sep=" "):
-        return sep.join(head + mid + last) if mid else sep.join(head + last)
-
-    def fits(mid):
-        return len(text(mid)) <= limit
-
-    mid = [w for w in middle if w.lower() not in STOP_WORDS]
-    if fits(mid):
-        return text(mid)
-    for step in (_devowel, lambda w: w[:3]):
-        for i in sorted(range(len(mid)), key=lambda k: -len(mid[k])):
-            mid[i] = step(mid[i])
-            if fits(mid):
-                return text(mid)
-    initials = ["".join(w[0].upper() for w in mid)] if mid else []
-    if fits(initials):
-        return text(initials)
-    last = [_devowel(w) for w in last]
-    if fits(initials):
-        return text(initials)
-    head = [_devowel(w) for w in head]
-    if fits(initials):
-        return text(initials)
-    return text(initials, sep="")[:limit]
+    if len(head) > limit // 2:  # un `short` trop long ne laisserait rien au snapshot
+        head = "".join(_cap(_devowel(w)) for w in ascii_words(short))[: limit // 2]
+    title, section = _split(snapshot)
+    body = _best(title, section, limit - len(head) - (1 if head else 0))
+    return " ".join(filter(None, [head, body]))
 
 
 def patch_names(rig: dict, limit: int = NAME_LEN) -> list[tuple[str, bool]]:
-    """Nom écrit dans chaque patch du rig, et s'il a été raccourci automatiquement.
+    """Nom écrit dans chaque patch du rig, et s'il a été compressé automatiquement.
 
     `patch_name` d'un snapshot l'emporte ; sinon `<short> <snapshot>` s'il
-    tient, sinon sa réduction. Deux réductions identiques reçoivent un
+    tient, sinon sa compression. Deux compressions identiques reçoivent un
     numéro (« … 2 ») pour qu'on les distingue sur l'écran.
     """
     short = rig.get("short", rig.get("name", ""))

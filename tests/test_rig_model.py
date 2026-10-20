@@ -579,12 +579,13 @@ def test_backup_is_refused(edit, message):
 @pytest.mark.parametrize(
     "short, name, expected",
     [
-        ("Crunch", "Chorus", "Crunch Chorus"),
-        ("PULSE", "A Great Day For Freedom - Intro", "PULSE GDF Intro"),
-        ("PULSE", "A Great Day For Freedom", "PULSE GD Freedom"),
-        ("PULSE", "Shine On You Crazy Diamond Part 2", "PULSE SYCD Prt 2"),
+        ("Crunch", "Chorus", "Crunch Chorus"),  # tient : inchangé
+        ("PULSE", "A Great Day For Freedom", "PULSE GrtDayFrdm"),
+        ("PULSE", "A Great Day For Freedom And Maybe This is a very long title", "PULSE GrtDayFMbL"),
+        ("PULSE", "A Great Day For Freedom - Intro", "PULSE GDay Intro"),  # la section après « - » reste entière
+        ("PULSE", "Another Brick In The Wall Part 2", "PULSE ABW Part 2"),  # section connue, avec son numéro
         ("PULSE", "Sorrow Outro", "PULSE Srrw Outro"),
-        ("Écho", "Première partie élégante", "Echo PP elegante"),
+        ("Écho", "Première partie élégante", "Echo PrmrPrtEleg"),  # accents retirés
     ],
 )
 def test_abbreviate(short, name, expected):
@@ -600,5 +601,5 @@ def test_long_snapshot_names_are_shortened_in_the_patch(dump):
     rig["snapshots"][2]["patch_name"] = "Mine"
     result = compile_rig(PEDALBOARD, None, rig, dump)
     names = [result.changes["patches"][label]["name"].rstrip() for label in ("12-5", "12-6", "12-7", "12-8")]
-    assert names == ["PULSE GDF Intro", "PULSE GDF Intr 2", "Mine", "PULSE S3"]
-    assert "Pulse: patch 12-5 is named 'PULSE GDF Intro' (shortened from 'A Great Day For Freedom - Intro')." in result.warnings
+    assert names == ["PULSE GDay Intro", "PULSE GD Intro 2", "Mine", "PULSE S3"]
+    assert "Pulse: patch 12-5 is named 'PULSE GDay Intro' (shortened from 'A Great Day For Freedom - Intro')." in result.warnings

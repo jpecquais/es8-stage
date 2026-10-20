@@ -68,7 +68,14 @@ const slug = (text, taken) => {
   return id;
 };
 /** Noms écrits dans les patchs d'un rig (16 caractères, raccourcis par le moteur au besoin) : [[nom, auto], …]. */
-const patchNames = (rig) => { try { return call("patch_names", JSON.stringify(rig)); } catch { return []; } };
+let engineWarned = false;
+const patchNames = (rig) => {
+  try { return call("patch_names", JSON.stringify(rig)); } catch {
+    // Moteur d'une version antérieure (serveur lancé avant la mise à jour) : le dire plutôt que d'afficher un nom faux.
+    if (!engineWarned) { engineWarned = true; setTimeout(() => toast("The ES8 engine in this page is out of date: reload the page (restart es8ctl web if it persists).", "error")); }
+    return [];
+  }
+};
 const plural = (n, word) => `${n} ${word}${n === 1 ? "" : "s"}`;
 
 // ================================================================= projet
