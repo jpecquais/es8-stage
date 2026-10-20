@@ -147,10 +147,13 @@ pédale pilotable en MIDI.
 }
 ```
 
-Rôles : `param` (CC vers une destination), `loop`, `tap`, `es8` (fonction
-native : `MEM_M`, `MUTE`…), `companion` (une action de ES8 Companion :
-`next`, `prev`, `next_song`, `prev_song`, `song_start`, `backup` ; canal
-et CC réglés par le projet), absent = inchangé. Les switches s'appliquent au
+Rôles : `param` (un paramètre MIDI, en bascule ou momentané) et
+`companion` (next, prev, next_song, prev_song, song_start, backup) sont
+tenus par ES8 Companion : sur l'ES-8, le switch n'est qu'un bouton (un CC
+fixe vers la Companion, fonction propre coupée), et la Companion envoie le
+CC du paramètre à son appareil et affiche son état (`docs/companion.md`,
+« Les switches de l'ES-8 »). `loop`, `tap`, `es8` (fonction native :
+`MEM_M`, `MUTE`…) restent natifs. Absent = inchangé. Les switches s'appliquent au
 mode manuel ; en mode patch, NUM1–8 rappellent les snapshots.
 
 ### `rigs/<nom>.json`
@@ -262,7 +265,7 @@ testable sur les fixtures. Chaque élément produit :
 | `snapshot.loops` | `loop_sw` | chacun |
 | `programs` (rig, surchargés par le snapshot) | slots MIDI : `midi_tx_ch`, `midi_pc`, `midi_pc_bank_*`, `midi_transmit` | chacun |
 | `snapshot.params` | `midi_ctl1/2_cc`, `midi_ctl1/2_cc_val` des slots | chacun |
-| switch `param` | un assign : source `NUMx`, cible `MIDI`, `assign_target_cc_ch/no`, `assign_mode`, min/max | tous ceux du rig |
+| switch `param` / `companion` | un assign momentané : source du switch, cible `MIDI`, canal de la Companion, CC = `first_cc` + rang ; `ctl_func` du switch = OFF ; système : MIDI OUT en Thru | tous ceux du rig |
 | switch `tap` | `ctl_func[NUM_x] = BPM` | tous ceux du rig |
 | switch `es8` | `ctl_func` du switch | tous ceux du rig |
 | switch `loop` | `manual_number<x>` = n° de loop (1–8) | **système** |
