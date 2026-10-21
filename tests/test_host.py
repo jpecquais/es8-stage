@@ -164,3 +164,22 @@ def test_auto_check_and_forgotten_edit_mode(host, monkeypatch):
     assert server.job["kind"] == "check" and wait_job(server)["ok"]
     server._auto_check()
     assert server.job["done"]  # une seule fois
+
+
+def test_bluetooth_adapter_held_elsewhere_is_reported(tmp_path, monkeypatch):
+    import subprocess
+
+    calls = []
+    scan = {"out": "[CHG] Device 11:22:33:44:55:66 RSSI: -70\n"}
+
+    def run(cmd, **kw):
+        calls.append(cmd[1] if cmd[1] != "--timeout" else "scan")
+        return subprocess.CompletedProcess(cmd, 0, stdout=scan["out"] if "scan" in cmd else "")
+
+    monkeypatch.setattr(subprocess, "run", run)
+    server = StageServer(tmp_path / "show.json", ble_address="20:98:66:65:ea:44", log=lambda m: None)
+    server._ble_reconnect()
+    assert calls == ["scan"] and server.snapshot()["midi"]["ble_seen"] is False  # pas de connexion inutile
+    scan["out"] += "[CHG] Device 20:98:66:65:EA:44 RSSI: -60\n"
+    server._ble_reconnect()
+    assert calls == ["scan", "scan", "connect"] and server.ble_seen is True

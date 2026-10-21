@@ -159,6 +159,7 @@ function ES8({ st, run }) {
     <section class="box">
       <h2 class="eyebrow">ES-8</h2>
       <p><span class="dot ${m.connected ? "on" : ""}"></span>${m.connected ? m.port : `Not connected (looking for “${m.match}”${st.ble ? ", Bluetooth " + st.ble : ""})`}</p>
+      ${!m.connected && m.ble_seen === false ? html`<p class="small bad">The Bluetooth adapter is not visible: another device (a Mac, a phone) may be connected to it. Disconnect it there.</p>` : null}
       <div class="row-wrap">
         <button class="ghost" onClick=${() => run(() => req(API + "reconnect", { method: "POST" }), "Reconnecting…")}>Reconnect</button>
       </div>

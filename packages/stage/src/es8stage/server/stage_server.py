@@ -317,13 +317,29 @@ class StageServer:
         if self._want_check and self._out is not None and self.stage.show and not self.edit and not self.busy():
             self.check()
 
+    ble_seen: bool | None = None  # l'adaptateur s'annonce-t-il ? (None : pas encore cherché)
+
     def _ble_reconnect(self) -> None:
-        """Relance la liaison Bluetooth : un court balayage (BlueZ doit revoir l'appareil), puis la connexion."""
-        for cmd in (["bluetoothctl", "--timeout", "6", "scan", "on"], ["bluetoothctl", "connect", self.ble_address]):
-            try:
-                subprocess.run(cmd, capture_output=True, timeout=20, check=False)
-            except (subprocess.TimeoutExpired, OSError) as exc:
-                self.log(f"Bluetooth: {exc}")
+        """Relance la liaison Bluetooth : un court balayage, puis la connexion si l'adaptateur s'annonce.
+        Un adaptateur BLE MIDI ne parle qu'à un appareil : s'il ne s'annonce pas, un autre (un Mac, un
+        téléphone) le tient sans doute ; les écrans le disent, et on réessaie sans attendre la connexion."""
+        try:
+            scan = subprocess.run(["bluetoothctl", "--timeout", "6", "scan", "on"], capture_output=True, text=True,
+                                  timeout=20, check=False).stdout
+        except (subprocess.TimeoutExpired, OSError) as exc:
+            self.log(f"Bluetooth: {exc}")
+            return
+        seen = self.ble_address.upper() in scan.upper()
+        if seen != self.ble_seen:
+            self.ble_seen = seen
+            self.log(f"Bluetooth: {self.ble_address} {'advertising' if seen else 'not advertising (held by another device?)'}")
+            self._changed()
+        if not seen:
+            return
+        try:
+            subprocess.run(["bluetoothctl", "connect", self.ble_address], capture_output=True, timeout=20, check=False)
+        except (subprocess.TimeoutExpired, OSError) as exc:
+            self.log(f"Bluetooth: {exc}")
 
     def midi_loop(self) -> None:
         """Ouvre le port quand il apparaît, le referme s'il disparaît ; relance le Bluetooth au besoin.
@@ -379,7 +395,8 @@ class StageServer:
     def snapshot(self) -> dict:
         with self.lock:
             snap = self.stage.snapshot()
-        snap["midi"] = {"connected": self._out is not None, "port": self.port_name, "match": self.midi_match}
+        snap["midi"] = {"connected": self._out is not None, "port": self.port_name, "match": self.midi_match,
+                        "ble": self.ble_address, "ble_seen": self.ble_seen}
         snap["edit"] = self.edit
         snap["job"] = self.job
         show = snap.get("show")

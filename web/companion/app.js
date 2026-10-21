@@ -193,7 +193,8 @@ function Banners({ snap, link, setScreen }) {
       <span><b>Edit mode</b> · the footswitches are paused while the ES-8 is being edited.</span>
       <button class="primary" onClick=${() => post({ type: "edit", on: false })}>Resume the show</button></div>`);
   } else if (snap.midi && !snap.midi.connected) {
-    out.push(html`<p class="banner bad">The ES-8 is not connected to the stage host.${details}</p>`);
+    out.push(html`<p class="banner bad">The ES-8 is not connected to the stage host${snap.midi.ble_seen === false
+      ? ": the Bluetooth adapter is not visible, another device (a Mac, a phone) may hold it" : ""}.${details}</p>`);
   } else if (snap.check && snap.check.state === "mismatch") {
     out.push(html`<p class="banner warn">The ES-8 does not match this show: some steps may load the wrong patch.${details}</p>`);
   }
@@ -524,7 +525,10 @@ function ES8Box({ snap }) {
           ${c.channel !== c.show_channel ? html`<li>The ES-8 listens on channel ${c.channel}, the show sends on ${c.show_channel}.</li>` : null}</ul>` : null}
         <div class="row-wrap">
           <button class="ghost" disabled=${busy || snap.edit} onClick=${() => post({ type: "check" })}>Check now</button>
-        </div>` : html`<p class="muted small">The stage host reconnects by itself. If it does not after a minute,
+        </div>` : m.ble_seen === false ? html`<p class="notice">The Bluetooth adapter (${m.ble}) is not visible. A Bluetooth MIDI adapter
+          talks to one device at a time: if a Mac, a phone or a tablet is connected to it, disconnect it there (on a Mac that should not use it,
+          forget the device in the Bluetooth settings). The stage host takes it back by itself. Otherwise, switch the adapter (or the ES-8) off and on.</p>`
+        : html`<p class="muted small">The stage host reconnects by itself. If it does not after a minute,
           switch the WIDI (or the ES-8) off and on, or use Reconnect on the <a href="../host/">host page</a>.</p>`}
       <label class="check"><input type="checkbox" checked=${!!snap.edit} onChange=${(e) => post({ type: "edit", on: e.target.checked })} />
         <span><b>Edit mode</b> <span class="muted small">pauses the footswitches so that ES8 Designer or ES8 Control can write to the ES-8.
