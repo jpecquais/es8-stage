@@ -329,15 +329,37 @@ const library = {
     } catch { this.set({ available: false }); return null; }
   },
   modified(listing, name) { return ((listing && listing.projects.find((p) => p.name === name)) || {}).modified || 0; },
+  /** À l'ouverture : le projet choisi dans ce navigateur ; sinon, sur un hôte de scène, celui que la scène
+   * joue (la Companion et le Designer montrent alors le même set). */
   async start() {
     const listing = await this.refresh();
+    if (!listing) return;
+    const has = (n) => listing.projects.some((p) => p.name === n);
     let name = null;
     try { name = localStorage.getItem(LIB_KEY); } catch { /* rien */ }
-    if (!listing || !name) return;
-    if (!listing.projects.some((p) => p.name === name)) { this.remember(null); return; }
+    if (name && !has(name)) { this.remember(null); name = null; }
+    const playing = listing.playing && has(listing.playing) ? listing.playing : null;
+    if (!name && playing) {
+      await this.keepBrowserProject(listing);
+      name = playing;
+      this.remember(name);
+      toast(`${name} opened: the set the stage plays.`, "ok", 4000);
+    } else if (name && playing && name !== playing) {
+      toast(`You are editing ${name}; the stage plays ${playing} (menu › Library… to open it).`, "", 6000);
+    }
+    if (!name) return;
     this.set({ current: name });
     await this.pull(listing);
     document.addEventListener("visibilitychange", () => { if (!document.hidden) this.pull(); });
+  },
+  /** Avant d'ouvrir un projet de la bibliothèque à sa place : le projet de ce navigateur, s'il n'est pas
+   * l'exemple, est rangé dans la bibliothèque (« … (this browser) ») pour ne pas être perdu. */
+  async keepBrowserProject(listing) {
+    if (JSON.stringify(project.doc) === JSON.stringify(migrate(clone(EXAMPLE)))) return;
+    const base = `${showName(project.doc)} (this browser)`;
+    let name = base;
+    for (let i = 2; listing.projects.some((p) => p.name === name); i += 1) name = `${base} ${i}`;
+    if (await this.save(name, { create: true })) toast(`The project of this browser is kept in the library as ${name}.`, "ok", 6000);
   },
   /** Reprend le projet courant de la bibliothèque s'il a changé ailleurs (et rien n'attend d'être enregistré ici). */
   async pull(listing) {
