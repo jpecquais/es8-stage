@@ -8,6 +8,7 @@
 import { html, render, useState, useEffect, useRef, useMemo } from "../shared/vendor/preact-htm.module.js";
 import * as E from "../shared/engine.js";
 import * as B from "../stage-shared/bridge.js"; // moteur es8stage, MIDI de l'hôte de scène
+import { otherApps } from "../stage-shared/nav.js";
 
 const { store, call, mutate, toast } = E;
 
@@ -539,6 +540,7 @@ function TopBar({ s, ui, go, doc }) {
       ${s.busy ? html`<span class="busy"><span>${s.busy.label}</span>
         <progress max=${s.busy.total || 1} value=${s.busy.n}></progress></span>` : null}
       ${s.midi === "ok" && !s.synced && !s.busy ? html`<button class="btn primary" onClick=${E.connect}>Connect to the ES-8</button>` : null}
+      ${s.stageHost ? html`<nav class="apps">${otherApps("designer").map((a) => html`<a href=${a.href}>${a.label}</a>`)}</nav>` : null}
       <${Menu} s=${s} doc=${doc} />
     </header>`;
 }
