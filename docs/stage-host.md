@@ -25,7 +25,7 @@ service (`~/.local/share/es8ctl` → `es8stage`) et lance le service `es8-stage`
 
 ## Avec l'éditeur
 
-ES Eight Stage s'appuie sur l'éditeur (dépôt `es8`, sous-module `es8/`) sans le modifier :
+ES8 Stage s'appuie sur l'éditeur (dépôt `es8`, sous-module `es8/`) sans le modifier :
 le serveur sert ES8 Control et le moteur web (`/control/`, `/shared/`) à côté de ses
 applis, et branche le moteur par ses points d'extension (`globalThis.ES8_ENGINE`,
 `web/stage-shared/bridge.js`) : module Python `es8stage.webapp` (l'éditeur plus les rigs),

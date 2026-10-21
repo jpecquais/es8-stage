@@ -1,4 +1,4 @@
-# ES Eight Stage
+# ES8 Stage
 
 Rigs, setlists and a stage companion for the BOSS ES-8 Effects Switching
 System, built on [es8](https://github.com/jpecquais/es8) (the ES-8 engine,

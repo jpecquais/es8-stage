@@ -1,3 +1,3 @@
 # es8stage
 
-ES Eight Stage for the BOSS ES-8: see the repository README.
+ES8 Stage for the BOSS ES-8: see the repository README.

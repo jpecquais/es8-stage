@@ -1,4 +1,4 @@
-"""Serveur HTTP de ES Eight Stage (docs/stage-host.md) : les applis, la bibliothèque, l'hôte de scène.
+"""Serveur HTTP de ES8 Stage (docs/stage-host.md) : les applis, la bibliothèque, l'hôte de scène.
 
 - Applis : `web/` de ce dépôt (designer, companion, host, stage-shared) et, par-dessus, celles
   de l'éditeur (`es8ctl` : control, shared) ; `/` mène à la Companion, la façade.
@@ -48,7 +48,7 @@ def web_roots() -> list[Path]:
     here = Path(__file__).resolve().parent.parent  # paquet installé (es8stage/web), puis dépôt
     ours = next((b / "web" for b in (here, here.parents[3]) if (b / "web" / "stage-shared").is_dir()), None)
     if ours is None:
-        raise FileNotFoundError("ES Eight Stage web apps not found (web/stage-shared).")
+        raise FileNotFoundError("ES8 Stage web apps not found (web/stage-shared).")
     return [ours, _web_roots()["web"]]
 
 

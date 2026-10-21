@@ -1,7 +1,7 @@
-# Hôte de scène ES Eight Stage sur le Raspberry Pi (docs/stage-host.md).
+# Hôte de scène ES8 Stage sur le Raspberry Pi (docs/stage-host.md).
 # Installé par deploy/pi/install.sh ; ES8_STAGE_ARGS vient de /etc/default/es8-stage.
 [Unit]
-Description=ES Eight Stage host (ES8 Companion, Designer, Control, set library)
+Description=ES8 Stage host (ES8 Companion, Designer, Control, set library)
 # Après bluetooth.service : à l'arrêt du Pi, ce service s'arrête d'abord et lâche le WIDI proprement.
 After=network-online.target bluetooth.target bluetooth.service
 Wants=network-online.target

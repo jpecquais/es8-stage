@@ -1,4 +1,4 @@
-// ES8 Companion — la façade de ES Eight Stage (Preact + htm, sans compilation). Textes en anglais.
+// ES8 Companion — la façade de ES8 Stage (Preact + htm, sans compilation). Textes en anglais.
 // Spéc : docs/companion.md, docs/stage-host.md. C'est l'écran de l'hôte de scène (`es8stage serve
 // --stage`, le Pi) : l'hôte joue le show et parle MIDI à l'ES-8 ; cette page affiche l'état qu'il pousse
 // (Server-Sent Events) et lui envoie les gestes (écran, pédales tourne-page du clavier). Le menu mène aux

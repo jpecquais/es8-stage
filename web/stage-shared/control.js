@@ -1,4 +1,4 @@
-// ES8 Control servi par ES Eight Stage : le serveur ajoute ce module avant celui de l'appli.
+// ES8 Control servi par ES8 Stage : le serveur ajoute ce module avant celui de l'appli.
 // Il branche le moteur sur l'hôte de scène (bridge.js) et, si la page passe par lui, affiche le
 // mode édition dans un petit encart (écrire sur l'ES-8 demande de mettre la Companion en pause) ; il pose
 // le bandeau commun des applis de l'hôte.

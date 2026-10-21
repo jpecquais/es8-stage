@@ -1,4 +1,4 @@
-# Dépôt es8-stage (ES Eight Stage) : un workspace uv avec es8stage, et le moteur et la ligne
+# Dépôt es8-stage (ES8 Stage) : un workspace uv avec es8stage, et le moteur et la ligne
 # de commande de l'éditeur (es8core, es8ctl) pris dans le sous-module es8/.
 [project]
 name = "es8-stage-workspace"

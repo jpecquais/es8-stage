@@ -76,9 +76,9 @@ export async function mountNav(current) {
   document.head.append(style);
   bar = document.createElement("nav");
   bar.id = "stage-nav";
-  bar.setAttribute("aria-label", "ES Eight Stage");
+  bar.setAttribute("aria-label", "ES8 Stage");
   const link = ([id, label]) => `<a href="${new URL(`${id}/`, BASE).href}"${id === current ? ' aria-current="page"' : ""}>${label}</a>`;
-  bar.innerHTML = `<span class="sn-brand">ES Eight Stage</span>${APPS.map(link).join("")}<span class="sn-grow"></span>
+  bar.innerHTML = `<span class="sn-brand">ES8 Stage</span>${APPS.map(link).join("")}<span class="sn-grow"></span>
     <a class="sn-es8" href="${new URL("companion/?view=menu", BASE).href}"><span class="sn-dot"></span><span class="sn-es8-text"></span></a>`;
   document.body.prepend(bar);
   setNavHidden(hidden);

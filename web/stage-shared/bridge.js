@@ -1,4 +1,4 @@
-// ES Eight Stage : branche le moteur web de l'éditeur (es8/web/shared/engine.js) sur ce serveur.
+// ES8 Stage : branche le moteur web de l'éditeur (es8/web/shared/engine.js) sur ce serveur.
 // À importer avant le premier appel à `boot()` (ES8 Designer l'importe ; ES8 Control le reçoit du
 // serveur, voir control.js). Points d'extension du moteur : `globalThis.ES8_ENGINE`.
 //

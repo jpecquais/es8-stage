@@ -1,7 +1,7 @@
 [project]
 name = "es8stage"
 version = "0.1.0"
-description = "ES Eight Stage: rigs and setlists compiled for the BOSS ES-8, ES8 Designer, ES8 Companion and a Raspberry Pi stage host."
+description = "ES8 Stage: rigs and setlists compiled for the BOSS ES-8, ES8 Designer, ES8 Companion and a Raspberry Pi stage host."
 readme = "README.md"
 requires-python = ">=3.11"
 license = "AGPL-3.0-or-later"

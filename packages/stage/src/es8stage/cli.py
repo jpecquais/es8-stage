@@ -14,7 +14,7 @@ import typer
 from es8core.codec import CodecError
 from es8ctl.cli import _emit_changes, _fail, _load_base, _print_json
 
-app = typer.Typer(help="ES Eight Stage: rigs, setlists and the stage apps for the BOSS ES-8.", no_args_is_help=True)
+app = typer.Typer(help="ES8 Stage: rigs, setlists and the stage apps for the BOSS ES-8.", no_args_is_help=True)
 rig_app = typer.Typer(
     help="Rigs (docs/rig-model.md): compile a rig or a whole project into a changes JSON for `es8ctl apply`."
 )
