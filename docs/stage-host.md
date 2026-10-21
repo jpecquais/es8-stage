@@ -187,6 +187,13 @@ Fait (`web/host/`, `es8stage/server/host_auth.py`) :
   l'adaptateur s'annonce ; sinon l'état le dit (`midi.ble_seen = false`) et
   les écrans conseillent de le libérer sur l'autre appareil. **Un Mac qui
   passe par le Pi doit oublier le WIDI** dans ses réglages Bluetooth.
+  Seconde cause, vérifiée le même jour : une coupure brutale (BlueZ qui
+  s'arrête éteint la radio, comme à chaque redémarrage du Pi) laisse le WIDI
+  muet jusqu'à ce qu'on le rallume ; une déconnexion propre, non (il se
+  réannonce, le Pi le reprend en 11 s). Le service lâche donc le WIDI
+  proprement en s'arrêtant (`StageServer.stop`, SIGTERM, unité après
+  `bluetooth.service`). Essai : redémarrage complet du Pi, WIDI reconnecté
+  3 s après le démarrage du service, setlist vérifiée, sans toucher au WIDI.
 
 ## Le Pi comme une pédale
 
