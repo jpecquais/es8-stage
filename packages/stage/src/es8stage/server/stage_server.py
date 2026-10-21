@@ -47,6 +47,7 @@ class StageServer:
         self._taps: list[queue.Queue] = []  # SysEx reçu, pour les travaux de l'hôte (sauvegarde, restauration)
         self.job: dict | None = None  # travail en cours ou dernier fini : {kind, phase, n, total, done, error, result}
         self.stage = Stage(send=self._send, changed=self._changed)
+        self.playing_name = lambda: None  # nom du set joué dans la bibliothèque (posé par le serveur HTTP)
         self._load_show(restore=True)
 
     # ---------------------------------------------------------------- show et persistance
@@ -400,6 +401,7 @@ class StageServer:
         snap["midi"] = {"connected": self._out is not None, "port": self.port_name, "match": self.midi_match,
                         "ble": self.ble_address, "ble_seen": self.ble_seen}
         snap["edit"] = self.edit
+        snap["playing"] = self.playing_name()
         snap["job"] = self.job
         show = snap.get("show")
         if self.busy() and self.job["kind"] == "check":

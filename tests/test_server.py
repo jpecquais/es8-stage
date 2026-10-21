@@ -5,6 +5,7 @@ import io
 import json
 import threading
 import zipfile
+from pathlib import Path
 
 import pytest
 
@@ -65,3 +66,21 @@ def test_library_and_current_show(server):
     assert status == 204
     assert request(server, "DELETE", "/library/shows/Sat", headers={"Cookie": cookie})[0] == 409  # joué
     assert request(server, "POST", "/stage/show.json", {"schema": "nope"})[0] == 400
+
+
+def test_stage_state_names_the_set_played(tmp_path):
+    """Les écrans (Companion, Designer) savent quel set de la bibliothèque la scène joue : le Designer l'ouvre."""
+    from es8stage.server.stage_server import StageServer
+
+    host = StageServer(tmp_path / "show.json", log=lambda m: None)
+    srv = make_server(0, data=tmp_path, host=host)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    try:
+        show = json.loads((Path(__file__).parent / "fixtures" / "demo-show.json").read_text())
+        assert json.loads(request(srv, "GET", "/stage/state")[1])["playing"] is None
+        assert request(srv, "PUT", "/library/shows/PULSE", show)[0] == 204
+        assert request(srv, "POST", "/library/shows/PULSE", {"op": "play"})[0] == 204
+        assert json.loads(request(srv, "GET", "/stage/state")[1])["playing"] == "PULSE"
+    finally:
+        srv.shutdown()
+        srv.server_close()

@@ -120,6 +120,8 @@ def make_server(port: int, lan: bool = False, host=None, data: Path | None = Non
     data = data or data_dir()
     show_file = data / "show.json"
     library = Library(data / "library", show_file)
+    if host is not None:
+        host.playing_name = library.playing
     auth = HostAuth(data / "host-auth.json")
     roots = web_roots()
     engine = {"key": None, "zip": b""}

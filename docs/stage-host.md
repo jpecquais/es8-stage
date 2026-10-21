@@ -169,6 +169,15 @@ Fait (`web/host/`, `es8stage/server/host_auth.py`) :
   diffère en mode édition (pages relues jusqu'à vérification), range le show
   dans la bibliothèque sous le nom du projet et le joue, puis coupe le mode
   édition. Si une page n'est pas vérifiée, le show n'est pas changé.
+- **Un seul set sur scène, le même partout.** Au démarrage, le Pi rouvre le
+  dernier set joué (`show.json`, position dans `stage.json`). L'état nomme le
+  set de la bibliothèque joué (`playing`). Le Designer servi par l'hôte
+  ouvre toujours ce set, et le suit quand il change (Companion › Shows ›
+  Play, page de l'hôte, autre écran). Ouvrir dans le Designer un set qui a
+  son show le met sur scène (après confirmation) ; un set jamais envoyé
+  s'ouvre seul, « Send to stage » le joue. Le projet propre au navigateur
+  (s'il n'est pas l'exemple) est rangé dans la bibliothèque, « … (this
+  browser) », avant d'être remplacé.
 - **Vérification de la setlist** (`StageServer.check`, lecture seule) : l'hôte
   lit les 8 pages système (quelques secondes) et compare, pour chaque
   setlist jouable, l'empreinte de la `pc_map` de sa banque MIDI avec

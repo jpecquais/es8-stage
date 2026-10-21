@@ -18,7 +18,7 @@ async function stageHostState() {
   } catch { return null; }
 }
 
-const hostInfo = (state) => ({ edit: !!state.edit, connected: state.midi.connected, port: state.midi.port });
+const hostInfo = (state) => ({ edit: !!state.edit, connected: state.midi.connected, port: state.midi.port, playing: state.playing || null });
 
 async function stageMidiAccess() {
   const state = await stageHostState();
@@ -30,7 +30,7 @@ async function stageMidiAccess() {
     try {
       const next = hostInfo(JSON.parse(e.data));
       const cur = store.state.stageHost || {};
-      if (next.edit !== cur.edit || next.connected !== cur.connected || next.port !== cur.port) store.set({ stageHost: next });
+      if (["edit", "connected", "port", "playing"].some((k) => next[k] !== cur[k])) store.set({ stageHost: next });
     } catch { /* message abîmé : le suivant le remplace */ }
   };
   const name = `ES-8 via stage host${state.midi && state.midi.port ? ` (${state.midi.port.split(":")[0]})` : ""}`;

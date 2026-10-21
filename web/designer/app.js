@@ -329,8 +329,8 @@ const library = {
     } catch { this.set({ available: false }); return null; }
   },
   modified(listing, name) { return ((listing && listing.projects.find((p) => p.name === name)) || {}).modified || 0; },
-  /** À l'ouverture : le projet choisi dans ce navigateur ; sinon, sur un hôte de scène, celui que la scène
-   * joue (la Companion et le Designer montrent alors le même set). */
+  /** À l'ouverture : sur un hôte de scène, le set que la scène joue, toujours (la Companion et le Designer
+   * montrent le même set) ; sinon le projet choisi dans ce navigateur. Puis le set suit la scène. */
   async start() {
     const listing = await this.refresh();
     if (!listing) return;
@@ -339,18 +339,35 @@ const library = {
     try { name = localStorage.getItem(LIB_KEY); } catch { /* rien */ }
     if (name && !has(name)) { this.remember(null); name = null; }
     const playing = listing.playing && has(listing.playing) ? listing.playing : null;
-    if (!name && playing) {
-      await this.keepBrowserProject(listing);
+    if (playing && name !== playing) {
+      if (!name) await this.keepBrowserProject(listing);
       name = playing;
       this.remember(name);
-      toast(`${name} opened: the set the stage plays.`, "ok", 4000);
-    } else if (name && playing && name !== playing) {
-      toast(`You are editing ${name}; the stage plays ${playing} (menu › Library… to open it).`, "", 6000);
     }
+    this.followStage(playing);
     if (!name) return;
     this.set({ current: name });
     await this.pull(listing);
     document.addEventListener("visibilitychange", () => { if (!document.hidden) this.pull(); });
+  },
+  /** Le set joué change (Companion, page de l'hôte, autre écran) : le Designer l'ouvre aussitôt. */
+  followStage(playing) {
+    let last = playing;
+    store.subscribe((s) => {
+      const now = s.stageHost ? s.stageHost.playing : null;
+      if (!now || now === last) return;
+      last = now;
+      if (now !== this.state.current) this.follow(now);
+    });
+  },
+  async follow(name) {
+    if (this.timer) await this.save(); // ce qui attend d'être enregistré l'est d'abord
+    const listing = await this.refresh();
+    if (!listing || !listing.projects.some((p) => p.name === name)) return;
+    this.remember(name);
+    this.seen = 0;
+    await this.pull(listing);
+    toast(`${name} is on stage now: opened here too.`, "ok", 4000);
   },
   /** Avant d'ouvrir un projet de la bibliothèque à sa place : le projet de ce navigateur, s'il n'est pas
    * l'exemple, est rangé dans la bibliothèque (« … (this browser) ») pour ne pas être perdu. */
@@ -671,6 +688,19 @@ const LIB_SECTIONS = [
   ["backups", "ES-8 backups", "SysEx dumps of the whole ES-8."],
 ];
 
+/** Ouvrir un projet. Sur un hôte de scène, le Designer montre le set joué : ouvrir un set qui a déjà son
+ * show le met sur scène (la Companion suit) ; un set jamais envoyé s'ouvre seul, « Send to stage » le joue. */
+async function openSet(name, listing) {
+  if (!store.state.stageHost) { library.open(name); return; }
+  if (listing.shows.some((s) => s.name === name)) {
+    if (!confirm(`Put ${name} on stage? ES8 Companion switches to it.`)) return;
+    await library.op("shows", name, { op: "play" }); // l'hôte annonce le nouveau set : followStage l'ouvre
+    return;
+  }
+  await library.open(name);
+  toast(`${name} is not on stage yet: “Send to stage” plays it.`, "", 6000);
+}
+
 function LibraryDialog({ lib, doc, onClose }) {
   const [name, setName] = useState(doc.name || "");
   const listing = lib.listing || { projects: [], shows: [], backups: [] };
@@ -679,7 +709,7 @@ function LibraryDialog({ lib, doc, onClose }) {
     const out = [];
     if (kind === "projects") {
       out.push(it.name === lib.current ? html`<span class="badge sync">open</span>`
-        : html`<button class="btn small" onClick=${() => { library.open(it.name); onClose(); }}>Open</button>`);
+        : html`<button class="btn small" onClick=${() => { openSet(it.name, listing); onClose(); }}>Open</button>`);
     }
     if (kind === "shows") {
       out.push(it.name === listing.playing ? html`<span class="badge sync">playing</span>`
