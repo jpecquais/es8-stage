@@ -175,7 +175,11 @@ Fait (`web/host/`, `es8stage/server/host_auth.py`) :
   ouvre toujours ce set, et le suit quand il change (Companion › Shows ›
   Play, page de l'hôte, autre écran). Ouvrir dans le Designer un set qui a
   son show le met sur scène (après confirmation) ; un set jamais envoyé
-  s'ouvre seul, « Send to stage » le joue. Le projet propre au navigateur
+  s'ouvre seul, « Send to stage » le joue. Un set, c'est un nom : le projet
+  (ce qu'on édite) et le show (ce que la scène joue) le portent tous deux ;
+  le Designer n'a qu'une liste, « Sets… » (ouvrir, renommer, dupliquer,
+  supprimer, nouveau set vide) ; les sauvegardes de l'ES-8 sont sur la page
+  de l'hôte. Le projet propre au navigateur
   (s'il n'est pas l'exemple) est rangé dans la bibliothèque, « … (this
   browser) », avant d'être remplacé.
 - **Vérification de la setlist** (`StageServer.check`, lecture seule) : l'hôte
