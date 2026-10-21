@@ -2,7 +2,8 @@
 # Installé par deploy/pi/install.sh ; ES8_STAGE_ARGS vient de /etc/default/es8-stage.
 [Unit]
 Description=ES Eight Stage host (ES8 Companion, Designer, Control, set library)
-After=network-online.target bluetooth.target
+# Après bluetooth.service : à l'arrêt du Pi, ce service s'arrête d'abord et lâche le WIDI proprement.
+After=network-online.target bluetooth.target bluetooth.service
 Wants=network-online.target
 
 [Service]
@@ -12,6 +13,7 @@ ExecStart=/home/es8/venv/bin/es8stage serve --no-open --lan --port 80 --stage $E
 AmbientCapabilities=CAP_NET_BIND_SERVICE
 Restart=always
 RestartSec=3
+TimeoutStopSec=10
 
 [Install]
 WantedBy=multi-user.target

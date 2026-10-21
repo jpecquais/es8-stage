@@ -183,3 +183,12 @@ def test_bluetooth_adapter_held_elsewhere_is_reported(tmp_path, monkeypatch):
     scan["out"] += "[CHG] Device 20:98:66:65:EA:44 RSSI: -60\n"
     server._ble_reconnect()
     assert calls == ["scan", "scan", "connect"] and server.ble_seen is True
+
+
+def test_stop_lets_go_of_the_bluetooth_adapter(tmp_path, monkeypatch):
+    import subprocess
+
+    calls = []
+    monkeypatch.setattr(subprocess, "run", lambda cmd, **kw: calls.append(cmd))
+    StageServer(tmp_path / "show.json", ble_address="20:98:66:65:EA:44", log=lambda m: None).stop()
+    assert calls == [["bluetoothctl", "disconnect", "20:98:66:65:EA:44"]]

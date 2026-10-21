@@ -121,12 +121,20 @@ def serve(
         typer.echo(f"On the network: http://{lan_address()}:{port}/", err=True)
     if open_browser:
         webbrowser.open(f"http://localhost:{port}/{app_name}/")
+    import signal
+
+    def _term(*_):  # systemd arrête le service par SIGTERM : on passe par le même chemin que Ctrl-C
+        raise KeyboardInterrupt
+
+    signal.signal(signal.SIGTERM, _term)
     try:
         server.serve_forever()
     except KeyboardInterrupt:
         pass
     finally:
         server.server_close()
+        if host is not None:
+            host.stop()
 
 
 def main() -> None:

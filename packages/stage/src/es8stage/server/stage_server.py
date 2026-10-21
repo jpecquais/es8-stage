@@ -365,6 +365,8 @@ class StageServer:
                 self.port_name = outs[0]
                 self.log(f"MIDI: {outs[0]}")
                 self._want_check = True
+                if self.ble_address:
+                    self.ble_seen = True
                 self._changed()
             except OSError as exc:
                 self.log(f"MIDI open failed: {exc}")
@@ -440,6 +442,17 @@ class StageServer:
         with self.cond:
             self.cond.wait_for(lambda: self.version != seen, timeout=timeout)
             return self.version
+
+    def stop(self) -> None:
+        """Arrêt du service (redémarrage, extinction du Pi) : on lâche le Bluetooth proprement.
+        Coupé brutalement (BlueZ qui s'arrête éteint la radio), le WIDI ne s'annonçait plus jusqu'à ce
+        qu'on le rallume (vérifié le 2026-10-21) ; une déconnexion propre le laisse se réannoncer."""
+        self._close()
+        if self.ble_address:
+            try:
+                subprocess.run(["bluetoothctl", "disconnect", self.ble_address], capture_output=True, timeout=5, check=False)
+            except (subprocess.TimeoutExpired, OSError):
+                pass
 
     def start(self) -> None:
         threading.Thread(target=self.midi_loop, daemon=True, name="stage-midi").start()
