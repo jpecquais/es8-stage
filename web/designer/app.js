@@ -816,7 +816,12 @@ const describeFields = (fields) => [...new Set(fields.map((f) => (FIELD_GROUPS.f
 
 function Tray({ s, preview, title }) {
   const pending = s.summary || { frames: 0 };
-  if (!preview) return html`<aside class="tray"><header><h3>To the ES-8</h3></header><div class="scroll muted">Compiling…</div></aside>`;
+  // Sur une tablette, la colonne devient un panneau en bas : replié, il montre l'état et le bouton ; le toucher le déplie.
+  const [open, setOpen] = useState(false);
+  const head = (h3, badge) => html`<header onClick=${() => setOpen(!open)}>
+    <h3>${h3}</h3>${badge}<button class="x tray-toggle" aria-label=${open ? "Fold" : "Unfold"} aria-expanded=${open}>${open ? "▾" : "▴"}</button></header>`;
+  const cls = `tray ${open ? "open" : ""}`;
+  if (!preview) return html`<aside class=${cls}>${head("To the ES-8")}<div class="scroll muted">Compiling…</div></aside>`;
   let badge, body;
   if (preview.error) {
     badge = html`<span class="badge bad">Cannot compile</span>`;
@@ -848,8 +853,8 @@ function Tray({ s, preview, title }) {
   const canStage = preview && !preview.error && !preview.missing && !preview.in_sync && !preview.staged;
   if (s.stageHost) { // hôte de scène : un seul geste, « Send to stage »
     return html`
-      <aside class="tray">
-        <header><h3>${title || "To the stage"}</h3>${badge}</header>
+      <aside class=${cls}>
+        ${head(title || "To the stage", badge)}
         <div class="scroll">${body}</div>
         <footer>
           <button class="btn write" disabled=${!s.stageHost.connected || s.busy || s.sending || (preview && preview.error)}
@@ -861,8 +866,8 @@ function Tray({ s, preview, title }) {
       </aside>`;
   }
   return html`
-    <aside class="tray">
-      <header><h3>${title || "To the ES-8"}</h3>${badge}</header>
+    <aside class=${cls}>
+      ${head(title || "To the ES-8", badge)}
       <div class="scroll">${body}</div>
       <footer>
         ${canStage ? html`<button class="btn primary" onClick=${() => mutate("rig_stage", JSON.stringify(project.doc))}>Prepare the write</button>` : null}
@@ -1293,7 +1298,7 @@ function SnapshotMatrix({ s, rig, rid, pb, edit, short }) {
     <section class="section">
       <header><h3>Snapshots</h3>
         <button class="btn small" onClick=${addSnap} title="The table scrolls sideways when the snapshots don't fit">+ Snapshot (${cols})</button>
-        <p>One patch each, in a row from ${patchOf(rig, 0)}. Double-click a MIDI cell to send a value instead of on/off.</p></header>
+        <p>One patch each, in a row from ${patchOf(rig, 0)}. Double-click or long-press a MIDI cell to send a value instead of on/off.</p></header>
       <div class="matrix-wrap">
         <table class="matrix">
           <thead><tr>
@@ -1371,8 +1376,9 @@ function SnapshotMatrix({ s, rig, rid, pb, edit, short }) {
                     }
                     const cls = v === "on" ? "on" : typeof v === "number" ? "val" : "";
                     return html`<td><button class="cell cp ${cls}" aria-pressed=${Boolean(v)}
-                      title="Click: on/off · double-click: value"
-                      onClick=${() => setParam(i, p.ref, v ? "off" : "on")}
+                      title="Click: on/off · double-click or long-press: value"
+                      ...${longPress(() => setEditing(key))}
+                      onClick=${(e) => { if (!e.currentTarget.dataset.held) setParam(i, p.ref, v ? "off" : "on"); }}
                       onDblClick=${() => setEditing(key)}>${v === "on" ? "ON" : typeof v === "number" ? v : ""}</button></td>`;
                   })}<td></td></tr>`;
                 })}`;
@@ -1391,10 +1397,10 @@ function SnapshotMatrix({ s, rig, rid, pb, edit, short }) {
  * Seule la poignée démarre le glisser : les champs de la ligne restent utilisables.
  */
 function Sortable({ items, onMove, row, keyOf }) {
-  const [armed, setArmed] = useState(null);
   const [drag, setDrag] = useState(null);
   const [over, setOver] = useState(null); // { i, after }
-  const reset = () => { setArmed(null); setDrag(null); setOver(null); };
+  const list = useRef();
+  const reset = () => { setDrag(null); setOver(null); };
   const drop = () => {
     if (drag !== null && over) {
       let to = over.i + (over.after ? 1 : 0);
@@ -1403,22 +1409,30 @@ function Sortable({ items, onMove, row, keyOf }) {
     }
     reset();
   };
-  return html`<ol class="sortable">
+  // Le rang survolé par le doigt ou la souris : la moitié haute place avant, la moitié basse après.
+  const overAt = (y) => {
+    const rows = [...list.current.children];
+    for (let i = 0; i < rows.length; i += 1) {
+      const r = rows[i].getBoundingClientRect();
+      if (y < r.bottom || i === rows.length - 1) return { i, after: y > r.top + r.height / 2 };
+    }
+    return null;
+  };
+  const grip = (i) => ({
+    onPointerDown: (e) => { e.preventDefault(); e.currentTarget.setPointerCapture(e.pointerId); setDrag(i); setOver(null); },
+    onPointerMove: (e) => {
+      if (drag !== i) return;
+      const at = overAt(e.clientY);
+      if (at && (!over || over.i !== at.i || over.after !== at.after)) setOver(at);
+    },
+    onPointerUp: drop,
+    onPointerCancel: reset,
+  });
+  return html`<ol class="sortable" ref=${list}>
     ${items.map((item, i) => {
       const mark = over && over.i === i && drag !== null && drag !== i ? (over.after ? "drop-after" : "drop-before") : "";
-      return html`<li key=${keyOf ? keyOf(item, i) : i} class="srow ${drag === i ? "dragging" : ""} ${mark}"
-        draggable=${armed === i}
-        onDragStart=${(e) => { setDrag(i); e.dataTransfer.effectAllowed = "move"; e.dataTransfer.setData("text/plain", String(i)); }}
-        onDragOver=${(e) => {
-          if (drag === null) return;
-          e.preventDefault();
-          const r = e.currentTarget.getBoundingClientRect();
-          const after = e.clientY > r.top + r.height / 2;
-          if (!over || over.i !== i || over.after !== after) setOver({ i, after });
-        }}
-        onDrop=${(e) => { e.preventDefault(); drop(); }}
-        onDragEnd=${reset}>
-        <span class="grip" title="Drag to reorder" onPointerDown=${() => setArmed(i)} onPointerUp=${() => drag === null && setArmed(null)}>⋮⋮</span>
+      return html`<li key=${keyOf ? keyOf(item, i) : i} class="srow ${drag === i ? "dragging" : ""} ${mark}">
+        <span class="grip" title="Drag to reorder" ...${grip(i)}>⋮⋮</span>
         <span class="idx">${i + 1}</span>
         ${row(item, i)}
         <span class="moves">
@@ -1428,6 +1442,22 @@ function Sortable({ items, onMove, row, keyOf }) {
       </li>`;
     })}
   </ol>`;
+}
+
+/** Appui long (doigt ou souris, 450 ms) : `fn` ; le clic qui suit est ignoré (`data-held`). */
+function longPress(fn) {
+  let timer = null;
+  const stop = () => { clearTimeout(timer); timer = null; };
+  return {
+    onPointerDown: (e) => {
+      const el = e.currentTarget;
+      delete el.dataset.held;
+      stop();
+      timer = setTimeout(() => { el.dataset.held = "1"; fn(); }, 450);
+    },
+    onPointerUp: stop, onPointerLeave: stop, onPointerCancel: stop,
+    onContextMenu: (e) => e.preventDefault(), // iPad : pas de menu sur l'appui long
+  };
 }
 
 const moved = (list, from, to) => { const next = [...list]; const [x] = next.splice(from, 1); next.splice(to, 0, x); return next; };
