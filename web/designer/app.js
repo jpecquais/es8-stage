@@ -158,13 +158,15 @@ const EXAMPLE = {
 const clone = (x) => JSON.parse(JSON.stringify(x));
 
 const showName = (doc) => (doc.name || "Show").replace(/[\\/:*?"<>|]/g, "-").replace(/^\.+/, "").slice(0, 80) || "Show";
+/** Le nom du set : celui de la bibliothèque si le projet y est (projet et show le partagent), sinon le nom du projet. */
+const setName = (doc) => library.state.current || showName(doc);
 
 // Show pour ES8 Companion : rangé dans la bibliothèque de l'hôte et joué, sinon téléchargé.
 function exportShow(doc) {
   const r = call("show_export", JSON.stringify(doc));
   if (r.error) { toast(`No show: ${(r.problems || [r.error]).join(" ")}`, "error"); return; }
   if (library.state.available) { // rangé dans la bibliothèque sous le nom du projet, et joué
-    const name = showName(doc);
+    const name = setName(doc);
     library.playShow(r.show, name)
       .then(() => toast(`Show "${name}" saved in the library and played: every open ES8 Companion takes it.`, "ok", 4000))
       .catch((err) => toast(`Show not sent: ${err.message}`, "error"));
@@ -201,9 +203,10 @@ async function sendToStage(doc) {
       const left = (store.state.summary || {}).frames;
       if (left) { toast("Some pages could not be verified on the ES-8: the show was not changed. Try again.", "warn", 0); return; }
     }
-    await library.playShow(shown.show, showName(doc));
-    toast(pv.in_sync ? `The ES-8 already matched: “${showName(doc)}” is played now.`
-      : `Written, verified, and “${showName(doc)}” is played now.`, "ok", 6000);
+    const name = setName(doc);
+    await library.playShow(shown.show, name);
+    toast(pv.in_sync ? `The ES-8 already matched: “${name}” is played now.`
+      : `Written, verified, and “${name}” is played now.`, "ok", 6000);
   } catch (err) {
     toast(`Not sent: ${err.message || err}`, "error", 0);
   } finally {
@@ -386,9 +389,10 @@ const library = {
     const m = this.modified(listing, name);
     if (!m || m <= this.seen) return;
     try {
-      const doc = await (await libFetch(libUrl("projects", name))).json();
+      const doc = migrate(await (await libFetch(libUrl("projects", name))).json());
       this.seen = m;
-      project.replace(migrate(doc), { fromLibrary: true });
+      doc.name = name; // le projet porte le nom de son set
+      project.replace(doc, { fromLibrary: true });
       this.set({ status: "saved" });
     } catch (err) { this.set({ status: `error: ${err.message}` }); }
   },
@@ -424,7 +428,8 @@ const library = {
     const listing = await this.refresh();
     const exists = listing && listing.projects.some((p) => p.name === name);
     if (exists && name !== this.state.current && !confirm(`${name} already exists in the library. Replace it with the current project?`)) return;
-    if (await this.save(name, { create: !exists })) { this.remember(name); toast(`Saved in the library as ${name}.`, "ok", 3000); }
+    project.doc.name = name;
+    if (await this.save(name, { create: !exists })) { this.remember(name); project.replace(project.doc, { fromLibrary: true }); toast(`Saved as the set ${name}.`, "ok", 3000); }
   },
   /** POST {op} sur un élément ; rend la réponse JSON éventuelle. */
   async op(kind, name, body) {
@@ -433,6 +438,48 @@ const library = {
       await this.refresh();
       return res.status === 200 ? res.json() : {};
     } catch (err) { toast(err.message, "error"); await this.refresh(); return null; }
+  },
+  /** Les sets : un nom, un projet (ce qu'on édite) et/ou un show (ce que la scène joue). */
+  sets(listing = this.state.listing) {
+    if (!listing) return [];
+    const by = new Map();
+    for (const kind of ["projects", "shows"]) {
+      for (const it of listing[kind]) {
+        const set = by.get(it.name) || { name: it.name, modified: 0 };
+        set[kind === "projects" ? "project" : "show"] = true;
+        set.modified = Math.max(set.modified, it.modified);
+        by.set(it.name, set);
+      }
+    }
+    return [...by.values()].sort((a, b) => a.name.localeCompare(b.name));
+  },
+  async renameSet(name, to) {
+    const set = this.sets().find((s) => s.name === name);
+    if (!set) return;
+    if (this.sets().some((s) => s.name === to)) { toast(`A set named ${to} already exists.`, "error"); return; }
+    if (set.project && !(await this.op("projects", name, { op: "rename", to }))) return;
+    if (set.show) await this.op("shows", name, { op: "rename", to });
+    if (name === this.state.current) {
+      this.remember(to);
+      project.update((d) => { d.name = to; });
+    }
+  },
+  async duplicateSet(name) {
+    const set = this.sets().find((s) => s.name === name);
+    if (!set) return;
+    let to = `${name} copy`;
+    for (let i = 2; this.sets().some((s) => s.name === to); i += 1) to = `${name} copy ${i}`;
+    if (set.project) await this.op("projects", name, { op: "duplicate", to });
+    if (set.show) await this.op("shows", name, { op: "duplicate", to });
+  },
+  async removeSet(name) {
+    const set = this.sets().find((s) => s.name === name);
+    if (!set) return;
+    if (set.show) {
+      try { await libFetch(libUrl("shows", name), { method: "DELETE" }); } catch (err) { toast(err.message, "error"); await this.refresh(); return; }
+    }
+    if (set.project) await this.remove("projects", name);
+    else await this.refresh();
   },
   async rename(kind, name, to) {
     if (await this.op(kind, name, { op: "rename", to }) && kind === "projects" && name === this.state.current) this.remember(to);
@@ -646,7 +693,7 @@ function Menu({ s, doc }) {
         <div class="sep row">
           <b class="grow">Project</b>
           ${lib.available ? html`<button class="btn small" onClick=${() => { setOpen(false); setLibOpen(true); library.refresh(); }}
-            title="Projects, shows and ES-8 backups kept on the stage host">Library…</button>` : null}
+            title="Your sets: open another one, rename, duplicate">Sets…</button>` : null}
           ${s.stageHost
             ? html`<button class="btn small" disabled=${s.sending || s.busy} onClick=${() => { setOpen(false); sendToStage(doc); }}
                 title="Write the project to the ES-8 and play its show in ES8 Companion">Send to stage</button>`
@@ -654,25 +701,28 @@ function Menu({ s, doc }) {
                 title="The setlists as a show file for ES8 Companion, the stage app">Show</button>`}
         </div>
         ${lib.available ? html`<p class="small muted">${lib.current
-          ? html`In the library as <b>${lib.current}</b> · ${libStatus(lib.status)}`
-          : "Kept in this browser only: save it in the library to open it on another screen."}</p>` : null}
-        <label>Project name<input value=${doc.name || ""} onInput=${(e) => project.update((d) => { d.name = e.target.value; })} /></label>
+          ? html`Set <b>${lib.current}</b>${lib.listing && lib.current === lib.listing.playing ? " (on stage)" : ""} · ${libStatus(lib.status)}`
+          : "Kept in this browser only: save it as a set (Sets…) to open it on another screen."}</p>` : null}
+        ${lib.current
+          ? html`<label>Set name<input key=${lib.current} defaultValue=${lib.current}
+              onChange=${(e) => { const to = e.target.value.trim(); if (to && to !== lib.current) library.renameSet(lib.current, to); else e.target.value = lib.current; }} /></label>`
+          : html`<label>Project name<input value=${doc.name || ""} onInput=${(e) => project.update((d) => { d.name = e.target.value; })} /></label>`}
         <div class="row">
           <button class="btn small" onClick=${() => E.download(JSON.stringify(doc, null, 2), `${slug(doc.name, [])}.es8project.json`, "application/json")}
             title="One file for es8stage rig compile, or to open on another computer">Export file</button>
           <label class="btn small">Open file<input type="file" accept=".json" hidden
             onChange=${(e) => { e.target.files[0] && importProject(e.target.files[0]); e.target.value = ""; setOpen(false); }} /></label>
         </div>
-        <div class="row">
+        ${s.stageHost ? html`<div class="row"><button class="link" onClick=${() => { setOpen(false); newSet(); }}>New empty set…</button></div>` : html`<div class="row">
           <button class="link" onClick=${() => { if (confirm("Replace the project with the example?")) { library.remember(null); project.replace(clone(EXAMPLE)); } }}>Load the example</button>
-          <button class="link danger" onClick=${() => {
+          <button class="link danger" onClick=${async () => {
             if (confirm(lib.current ? "Start an empty project? The library keeps the current one." : "Start an empty project? The current one is lost unless exported.")) {
+              if (library.timer) await library.save();
               library.remember(null);
-              project.replace({ schema: "es8ctl.project/1", name: "New project",
-                pedalboard: { schema: "es8ctl.pedalboard/2", devices: {} }, surfaces: {}, rigs: {}, tracks: {}, setlists: {} });
+              project.replace(emptyProject("New project"));
             }
           }}>Start empty</button>
-        </div>
+        </div>`}
         <p class="muted small sep">${lib.current ? "The project is saved in the library at each change." : "The project is kept in this browser."} Classic patch editing: <a href="../control/">ES8 Control</a>.
           Free software under the AGPL-3.0 · <a href="https://github.com/jpecquais/es8-stage" target="_blank" rel="noopener">source</a></p>
       </div>` : null}
@@ -682,62 +732,76 @@ function Menu({ s, doc }) {
 
 const libStatus = (st) => (st === "saving" ? "saving…" : st === "saved" ? "saved" : st.startsWith("error") ? html`<span class="error">${st}</span>` : "");
 const libDate = (t) => new Date(t * 1000).toLocaleString([], { dateStyle: "short", timeStyle: "short" });
-const LIB_SECTIONS = [
-  ["projects", "Projects", "ES8 Designer projects: open one here, on the Mac or on the iPad, and it stays in sync."],
-  ["shows", "Shows", "What ES8 Companion plays. The Show button of the menu saves the project's show here and plays it."],
-  ["backups", "ES-8 backups", "SysEx dumps of the whole ES-8."],
-];
+const emptyProject = (name) => ({ schema: "es8ctl.project/1", name,
+  pedalboard: { schema: "es8ctl.pedalboard/2", devices: {} }, surfaces: {}, rigs: {}, tracks: {}, setlists: {} });
 
-/** Ouvrir un projet. Sur un hôte de scène, le Designer montre le set joué : ouvrir un set qui a déjà son
- * show le met sur scène (la Companion suit) ; un set jamais envoyé s'ouvre seul, « Send to stage » le joue. */
-async function openSet(name, listing) {
-  if (!store.state.stageHost) { library.open(name); return; }
-  if (listing.shows.some((s) => s.name === name)) {
-    if (!confirm(`Put ${name} on stage? ES8 Companion switches to it.`)) return;
-    await library.op("shows", name, { op: "play" }); // l'hôte annonce le nouveau set : followStage l'ouvre
-    return;
-  }
-  await library.open(name);
+/** Un set vide, rangé dans la bibliothèque ; le set sur scène ne change pas avant « Send to stage ». */
+async function newSet() {
+  const name = (prompt("Name of the new set") || "").trim();
+  if (!name) return;
+  if (library.sets().some((s) => s.name === name)) { toast(`A set named ${name} already exists.`, "error"); return; }
+  if (library.timer) await library.save(); // le set ouvert d'abord
+  library.remember(null);
+  project.replace(emptyProject(name));
+  await library.saveAs(name);
   toast(`${name} is not on stage yet: “Send to stage” plays it.`, "", 6000);
 }
 
+/** Ouvrir un set. Sur un hôte de scène, le Designer montre le set joué : ouvrir un set déjà envoyé le met
+ * sur scène (la Companion suit) ; un set jamais envoyé s'ouvre seul, « Send to stage » le joue. */
+async function openSet(set) {
+  if (!store.state.stageHost || !set.show) {
+    await library.open(set.name);
+    if (store.state.stageHost) toast(`${set.name} is not on stage yet: “Send to stage” plays it.`, "", 6000);
+    return;
+  }
+  if (!confirm(`Put ${set.name} on stage? ES8 Companion switches to it.`)) return;
+  await library.op("shows", set.name, { op: "play" }); // l'hôte annonce le nouveau set : followStage l'ouvre
+}
+
 function LibraryDialog({ lib, doc, onClose }) {
-  const [name, setName] = useState(doc.name || "");
-  const listing = lib.listing || { projects: [], shows: [], backups: [] };
+  const [name, setName] = useState("");
+  const listing = lib.listing || { projects: [], shows: [], backups: [], playing: null };
+  const host = !!store.state.stageHost;
   const ask = (what, current) => { const to = prompt(what, current); return to && to.trim() && to.trim() !== current ? to.trim() : null; };
-  const actions = (kind, it) => {
-    const out = [];
-    if (kind === "projects") {
-      out.push(it.name === lib.current ? html`<span class="badge sync">open</span>`
-        : html`<button class="btn small" onClick=${() => { openSet(it.name, listing); onClose(); }}>Open</button>`);
-    }
-    if (kind === "shows") {
-      out.push(it.name === listing.playing ? html`<span class="badge sync">playing</span>`
-        : html`<button class="btn small" onClick=${() => library.op("shows", it.name, { op: "play" }).then((r) => r && toast(`${it.name} is played now.`, "ok", 3000))}>Play</button>`);
-    }
-    if (kind !== "backups") out.push(html`<button class="link" onClick=${() => library.op(kind, it.name, { op: "duplicate" })}>Duplicate</button>`);
-    out.push(html`<button class="link" onClick=${() => { const to = ask("New name", it.name); if (to) library.rename(kind, it.name, to); }}>Rename</button>`);
-    out.push(html`<a class="link" href=${libUrl(kind, it.name) + "?download"} download>Download</a>`);
-    out.push(html`<button class="link danger" onClick=${() => confirm(`Delete ${it.name}? This cannot be undone.`) && library.remove(kind, it.name)}>Delete</button>`);
-    return out;
+  const setRow = (set) => {
+    const onStage = set.name === listing.playing;
+    const open = set.name === lib.current;
+    const tags = [
+      onStage ? html`<span class="badge sync">on stage</span>` : null,
+      open ? html`<span class="badge">open here</span>` : null,
+      !set.show ? html`<span class="small muted">never sent to the stage</span>` : null,
+      !set.project ? html`<span class="small muted">show only: cannot be edited</span>` : null,
+    ];
+    const main = open || (onStage && !set.project) ? null
+      : set.project ? html`<button class="btn small" onClick=${() => { openSet(set); onClose(); }}>Open</button>`
+      : html`<button class="btn small" onClick=${() => library.op("shows", set.name, { op: "play" })}>Play</button>`;
+    return html`<li>
+      <span class="grow"><b>${set.name}</b> <span class="small muted">${libDate(set.modified)}</span> ${tags}</span>
+      <span class="row">${main}
+        <button class="link" onClick=${() => { const to = ask("New name", set.name); if (to) library.renameSet(set.name, to); }}>Rename</button>
+        <button class="link" onClick=${() => library.duplicateSet(set.name)}>Duplicate</button>
+        ${set.project ? html`<a class="link" href=${libUrl("projects", set.name) + "?download"} download>Download</a>` : null}
+        ${onStage ? null : html`<button class="link danger" onClick=${() => confirm(`Delete the set ${set.name}? This cannot be undone.`) && library.removeSet(set.name)}>Delete</button>`}
+      </span></li>`;
   };
+  const sets = library.sets(listing);
   return html`
     <div class="overlay" onPointerDown=${(e) => e.target === e.currentTarget && onClose()}>
-      <div class="dialog library" role="dialog" aria-label="Library">
-        <header class="row"><h3 class="grow">Library on the stage host</h3><button class="x" onClick=${onClose} aria-label="Close">×</button></header>
+      <div class="dialog library" role="dialog" aria-label="Sets">
+        <header class="row"><h3 class="grow">Sets</h3><button class="x" onClick=${onClose} aria-label="Close">×</button></header>
+        <p class="small muted">${host
+          ? "A set is what you edit here and what the stage plays, under one name. The set on stage is the one ES8 Companion shows; this Designer always follows it."
+          : "Sets kept on this server: open one here, on the Mac or on the iPad, and it stays in sync."}</p>
+        ${sets.length ? html`<ul class="lib-list">${sets.map(setRow)}</ul>` : html`<p class="small muted">None yet.</p>`}
         <form class="row" onSubmit=${(e) => { e.preventDefault(); name.trim() && library.saveAs(name.trim()); }}>
-          <input class="grow" value=${name} onInput=${(e) => setName(e.target.value)} placeholder="Name" />
-          <button class="btn primary small" disabled=${!name.trim()}>Save the current project here</button>
+          <input class="grow" value=${name} onInput=${(e) => setName(e.target.value)} placeholder="Name of a new set" />
+          <button class="btn small" disabled=${!name.trim()}>Save the current project as a new set</button>
         </form>
-        ${LIB_SECTIONS.map(([kind, title, help]) => html`
-          <section>
-            <h4>${title}</h4>
-            <p class="small muted">${help}</p>
-            ${listing[kind].length ? html`<ul class="lib-list">${listing[kind].map((it) => html`
+        ${host ? html`<p class="small muted">ES-8 backups are on the <a href="../host/">Stage host</a> page.</p>`
+          : listing.backups.length ? html`<section><h4>ES-8 backups</h4><ul class="lib-list">${listing.backups.map((it) => html`
               <li><span class="grow"><b>${it.name}</b> <span class="small muted">${libDate(it.modified)}</span></span>
-                <span class="row">${actions(kind, it)}</span></li>`)}</ul>`
-              : html`<p class="small muted">None yet.</p>`}
-          </section>`)}
+                <span class="row"><a class="link" href=${libUrl("backups", it.name) + "?download"} download>Download</a></span></li>`)}</ul></section>` : null}
       </div>
     </div>`;
 }
@@ -910,7 +974,7 @@ function IntroTab({ s, doc, go }) {
               ? html`<li><b>Send to stage.</b> Only the pages that differ are written, read back and resent until verified; then ES8 Companion plays the show.</li>`
               : html`<li><b>Write.</b> Only the pages that differ are sent, then read back and resent until verified. A backup is kept in this browser.</li>`}
           </ol>
-          <p class="muted small">${s.stageHost ? "Keep the project in the stage host's library (menu at the top right › Library…) to open it on any screen."
+          <p class="muted small">${s.stageHost ? "The Designer shows the set on stage, the one ES8 Companion plays; menu at the top right › Sets… to open another one."
             : html`Your project lives in this browser: export it from the menu at the top right (one file, also read by <code>es8stage rig compile</code>).`}
             Patch-by-patch editing stays in <a href="../control/">ES8 Control</a>.</p>
           <div><button class="btn primary" onClick=${() => go({ tab: "pedalboard" })}>Start with the pedalboard →</button></div>

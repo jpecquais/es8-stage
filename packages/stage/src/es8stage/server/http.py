@@ -232,6 +232,8 @@ def make_server(port: int, lan: bool = False, host=None, data: Path | None = Non
                     op = cmd.get("op")
                     if op == "rename":
                         library.rename(kind, name, str(cmd.get("to", "")))
+                        if host is not None and kind == "shows":
+                            host.library_changed()
                     elif op == "duplicate":
                         return self._reply(200, json.dumps({"name": library.duplicate(kind, name, cmd.get("to"))}).encode())
                     elif op == "play" and kind == "shows":

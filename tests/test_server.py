@@ -81,6 +81,10 @@ def test_stage_state_names_the_set_played(tmp_path):
         assert request(srv, "PUT", "/library/shows/PULSE", show)[0] == 204
         assert request(srv, "POST", "/library/shows/PULSE", {"op": "play"})[0] == 204
         assert json.loads(request(srv, "GET", "/stage/state")[1])["playing"] == "PULSE"
+        version = host.version
+        assert request(srv, "POST", "/library/shows/PULSE", {"op": "rename", "to": "PULSE live"})[0] == 204
+        assert host.version > version  # les écrans reçoivent le nouveau nom
+        assert json.loads(request(srv, "GET", "/stage/state")[1])["playing"] == "PULSE live"
     finally:
         srv.shutdown()
         srv.server_close()

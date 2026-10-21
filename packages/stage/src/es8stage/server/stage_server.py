@@ -89,6 +89,10 @@ class StageServer:
         except OSError:
             pass  # système en lecture seule : on joue quand même
 
+    def library_changed(self) -> None:
+        """Le set joué a changé de nom dans la bibliothèque : les écrans le reçoivent."""
+        self._changed()
+
     def _changed(self) -> None:
         self._save()
         with self.cond:

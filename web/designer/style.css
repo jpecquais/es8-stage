@@ -425,3 +425,4 @@ input[type="number"] { width: 64px; font-family: var(--font-mono); }
 .lib-list li:hover { background: var(--surface); }
 .lib-list .row { gap: 10px; font-size: 13px; }
 .lib-list a.link { font-size: 13px; }
+.lib-list .badge { margin-left: 10px; font-size: 13px; }
