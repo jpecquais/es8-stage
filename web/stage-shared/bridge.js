@@ -24,6 +24,15 @@ async function stageMidiAccess() {
   const state = await stageHostState();
   if (!state) return null; // pas d'hôte de scène : Web MIDI du navigateur
   store.set({ stageHost: hostInfo(state) });
+  // L'état de l'hôte suit en direct (ES-8 branché ou non, mode édition, qui se coupe seul s'il est oublié).
+  const follow = new EventSource(new URL("stage/events", BASE));
+  follow.onmessage = (e) => {
+    try {
+      const next = hostInfo(JSON.parse(e.data));
+      const cur = store.state.stageHost || {};
+      if (next.edit !== cur.edit || next.connected !== cur.connected || next.port !== cur.port) store.set({ stageHost: next });
+    } catch { /* message abîmé : le suivant le remplace */ }
+  };
   const name = `ES-8 via stage host${state.midi && state.midi.port ? ` (${state.midi.port.split(":")[0]})` : ""}`;
   const listeners = new Set();
   const input = {
