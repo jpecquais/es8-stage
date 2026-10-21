@@ -156,14 +156,14 @@ const EXAMPLE = {
 
 const clone = (x) => JSON.parse(JSON.stringify(x));
 
-// Show pour ES8 Companion : téléchargé, et déposé pour la Companion ouverte dans ce navigateur (même origine).
-const COMPANION_INBOX = "es8companion/incoming";
+const showName = (doc) => (doc.name || "Show").replace(/[\\/:*?"<>|]/g, "-").replace(/^\.+/, "").slice(0, 80) || "Show";
+
+// Show pour ES8 Companion : rangé dans la bibliothèque de l'hôte et joué, sinon téléchargé.
 function exportShow(doc) {
   const r = call("show_export", JSON.stringify(doc));
   if (r.error) { toast(`No show: ${(r.problems || [r.error]).join(" ")}`, "error"); return; }
-  try { localStorage.setItem(COMPANION_INBOX, JSON.stringify(r.show)); } catch { /* stockage plein : le fichier suffit */ }
   if (library.state.available) { // rangé dans la bibliothèque sous le nom du projet, et joué
-    const name = (doc.name || "Show").replace(/[\\/:*?"<>|]/g, "-").replace(/^\.+/, "").slice(0, 80) || "Show";
+    const name = showName(doc);
     library.playShow(r.show, name)
       .then(() => toast(`Show "${name}" saved in the library and played: every open ES8 Companion takes it.`, "ok", 4000))
       .catch((err) => toast(`Show not sent: ${err.message}`, "error"));
@@ -171,9 +171,44 @@ function exportShow(doc) {
   }
   E.download(JSON.stringify(r.show, null, 2), `${slug(doc.name, [])}.show.json`, "application/json");
   // Le serveur (es8stage serve, le Pi) le garde comme show courant : toutes les Companion ouvertes le prennent.
-  fetch("../stage/show.json", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(r.show) })
-    .then((res) => toast(res.ok ? "Show exported and sent to the server: every open ES8 Companion takes it." : "Show exported (file)."))
-    .catch(() => toast("Show exported. ES8 Companion in this browser opens it by itself."));
+  toast("Show exported (file).");
+}
+
+/**
+ * « Send to stage » (hôte de scène) : tout ce qu'il faut pour jouer le projet, d'un geste.
+ * Relit sur l'ES-8 les patchs des rigs et le système (l'état gardé ici peut être ancien), compile,
+ * écrit ce qui diffère en mode édition (pages relues jusqu'à vérification), range le show dans la
+ * bibliothèque et le joue, puis rend la main à la Companion ; l'hôte vérifie alors la setlist sur l'ES-8.
+ */
+async function sendToStage(doc) {
+  if (store.state.sending) return;
+  const shown = call("show_export", JSON.stringify(doc));
+  if (shown.error) { toast(`Cannot send: ${(shown.problems || [shown.error]).join(" ")}`, "error", 0); return; }
+  if (!E.hasDevice() || !(store.state.stageHost || {}).connected) { toast("The ES-8 is not connected to the stage host.", "error"); return; }
+  store.set({ sending: true });
+  let edit = false;
+  try {
+    const labels = ["system", ...Object.values(doc.rigs || {}).flatMap((rig) => rig.snapshots.map((_, i) => patchOf(rig, i)))];
+    if (!(await E.readSome([...new Set(labels)], "the project's patches", true))) return;
+    const pv = call("rig_preview", JSON.stringify(doc));
+    if (pv.error || pv.missing) { toast(`Cannot send: ${(pv.problems || [pv.error || "the ES-8 could not be read"]).join(" ")}`, "error", 0); return; }
+    if (!pv.in_sync) {
+      if (!pv.staged && !mutate("rig_stage", JSON.stringify(doc))) return;
+      await B.setEditMode(true);
+      edit = true;
+      await E.writePending();
+      const left = (store.state.summary || {}).frames;
+      if (left) { toast("Some pages could not be verified on the ES-8: the show was not changed. Try again.", "warn", 0); return; }
+    }
+    await library.playShow(shown.show, showName(doc));
+    toast(pv.in_sync ? `The ES-8 already matched: “${showName(doc)}” is played now.`
+      : `Written, verified, and “${showName(doc)}” is played now.`, "ok", 6000);
+  } catch (err) {
+    toast(`Not sent: ${err.message || err}`, "error", 0);
+  } finally {
+    if (edit) await B.setEditMode(false);
+    store.set({ sending: false });
+  }
 }
 
 /** Les morceaux écrits dans une setlist ({rig, sequence}) deviennent des tracks ; les rigs v1 (une banque) passent en v2. */
@@ -572,8 +607,11 @@ function Menu({ s, doc }) {
           <b class="grow">Project</b>
           ${lib.available ? html`<button class="btn small" onClick=${() => { setOpen(false); setLibOpen(true); library.refresh(); }}
             title="Projects, shows and ES-8 backups kept on the stage host">Library…</button>` : null}
-          <button class="btn small" onClick=${() => exportShow(doc)}
-            title="The setlists as a show file for ES8 Companion, the stage app">Show</button>
+          ${s.stageHost
+            ? html`<button class="btn small" disabled=${s.sending || s.busy} onClick=${() => { setOpen(false); sendToStage(doc); }}
+                title="Write the project to the ES-8 and play its show in ES8 Companion">Send to stage</button>`
+            : html`<button class="btn small" onClick=${() => exportShow(doc)}
+                title="The setlists as a show file for ES8 Companion, the stage app">Show</button>`}
         </div>
         ${lib.available ? html`<p class="small muted">${lib.current
           ? html`In the library as <b>${lib.current}</b> · ${libStatus(lib.status)}`
@@ -691,6 +729,20 @@ function Tray({ s, preview, title }) {
       ${preview.warnings.length ? html`<div><h3>Notes</h3><ul class="notes warn">${preview.warnings.map((w) => html`<li>${w}</li>`)}</ul></div>` : null}`;
   }
   const canStage = preview && !preview.error && !preview.missing && !preview.in_sync && !preview.staged;
+  if (s.stageHost) { // hôte de scène : un seul geste, « Send to stage »
+    return html`
+      <aside class="tray">
+        <header><h3>${title || "To the stage"}</h3>${badge}</header>
+        <div class="scroll">${body}</div>
+        <footer>
+          <button class="btn write" disabled=${!s.stageHost.connected || s.busy || s.sending || (preview && preview.error)}
+            onClick=${() => sendToStage(project.doc)}>${s.sending ? "Sending…" : "Send to stage"}</button>
+          ${pending.frames && !s.sending ? html`<button class="link" onClick=${() => mutate("discard")}>Discard the prepared write</button>` : null}
+          <p class="small muted">Reads the project's patches on the ES-8, writes what differs (read back until verified),
+            then plays the show in ES8 Companion. The footswitches pause only while writing.</p>
+        </footer>
+      </aside>`;
+  }
   return html`
     <aside class="tray">
       <header><h3>${title || "To the ES-8"}</h3>${badge}</header>
@@ -726,7 +778,7 @@ function SideList({ items, current, onPick, onAdd, addLabel, empty }) {
 
 // ================================================================= introduction
 
-function IntroTab({ doc, go }) {
+function IntroTab({ s, doc, go }) {
   const pb = pbOf(doc);
   const rigs = sortedRigs(doc);
   const tracks = Object.values(doc.tracks || {});
@@ -740,8 +792,8 @@ function IntroTab({ doc, go }) {
       status: `${plural(Object.keys(doc.pedalboard.devices || {}).length, "device")} · ${plural(loops, "loop")} used`,
     },
     {
-      tab: "surfaces", name: "Surface", what: "What each footswitch does in manual mode: toggle a MIDI parameter, switch a loop, tap the tempo. Several rigs can share one.",
-      es8: "Switch functions and assigns of the rig's patches.",
+      tab: "surfaces", name: "Surface", what: "What each footswitch does on stage: toggle a MIDI parameter or pick one of its steps, move through the setlist, switch a loop, tap the tempo. Several rigs can share one.",
+      es8: "Switch functions and assigns of the rig's patches; ES8 Companion keeps the state of the MIDI parameters.",
       status: plural(Object.keys(doc.surfaces || {}).length, "surface"),
     },
     {
@@ -755,7 +807,7 @@ function IntroTab({ doc, go }) {
       status: plural(tracks.length, "track"),
     },
     {
-      tab: "setlists", name: "Setlist", what: "The songs of a gig, in order. A pedal sending “next” / “previous” program changes walks through the whole gig.",
+      tab: "setlists", name: "Setlist", what: "The songs of a gig, in order. ES8 Companion walks through it as you press the footswitches, and shows where you are.",
       es8: "The program-change map: PC n recalls step n.",
       status: plural(setlists.length, "setlist"),
     },
@@ -801,10 +853,13 @@ function IntroTab({ doc, go }) {
           <ol>
             <li><b>Describe</b>, from left to right: pedalboard, surfaces, rigs, tracks, setlists.</li>
             <li><b>Compare.</b> The column on the right compiles your project against the ES-8 at every change: what differs, what is refused and why.</li>
-            <li><b>Write.</b> Only the pages that differ are sent, then read back and resent until verified. A backup is kept in this browser.</li>
+            ${s.stageHost
+              ? html`<li><b>Send to stage.</b> Only the pages that differ are written, read back and resent until verified; then ES8 Companion plays the show.</li>`
+              : html`<li><b>Write.</b> Only the pages that differ are sent, then read back and resent until verified. A backup is kept in this browser.</li>`}
           </ol>
-          <p class="muted small">Your project lives in this browser: export it from the menu at the top right (one file, also read by
-            <code>es8stage rig compile</code>). Patch-by-patch editing stays in <a href="../control/">ES8 Control</a>.</p>
+          <p class="muted small">${s.stageHost ? "Keep the project in the stage host's library (menu at the top right › Library…) to open it on any screen."
+            : html`Your project lives in this browser: export it from the menu at the top right (one file, also read by <code>es8stage rig compile</code>).`}
+            Patch-by-patch editing stays in <a href="../control/">ES8 Control</a>.</p>
           <div><button class="btn primary" onClick=${() => go({ tab: "pedalboard" })}>Start with the pedalboard →</button></div>
         </section>
       </main>
