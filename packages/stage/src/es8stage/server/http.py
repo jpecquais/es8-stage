@@ -1,7 +1,7 @@
 """Serveur HTTP de ES Eight Stage (docs/stage-host.md) : les applis, la bibliothèque, l'hôte de scène.
 
 - Applis : `web/` de ce dépôt (designer, companion, host, stage-shared) et, par-dessus, celles
-  de l'éditeur (`es8ctl` : control, shared) ; `/` mène à la page de l'hôte.
+  de l'éditeur (`es8ctl` : control, shared) ; `/` mène à la Companion, la façade.
 - Moteur du navigateur : `/stage-shared/engine.zip` = es8core + es8stage (sans le serveur),
   refait dès qu'une source change.
 - Show courant : `GET|POST /stage/show.json` ; bibliothèque : `/library/…` ;
@@ -352,7 +352,7 @@ def make_server(port: int, lan: bool = False, host=None, data: Path | None = Non
             route = self.path.split("?")[0]
             if route == "/":
                 self.send_response(302)
-                self.send_header("Location", "/host/")
+                self.send_header("Location", "/companion/")
                 self.send_header("Content-Length", "0")
                 return self.end_headers()
             if route.startswith("/library/"):

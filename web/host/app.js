@@ -135,7 +135,7 @@ function SetPassword({ first, run }) {
 
 function Job({ job }) {
   if (!job) return null;
-  const what = { backup: "Backing up the ES-8", restore: "Restoring the ES-8" }[job.kind] || job.kind;
+  const what = { backup: "Backing up the ES-8", restore: "Restoring the ES-8", check: "Checking the setlist on the ES-8" }[job.kind] || job.kind;
   const phase = { start: "starting", read: "reading", send: "writing", resend: "writing again" }[job.phase] || job.phase;
   if (!job.done) {
     return html`<div class="job"><span><b>${what}</b> · ${phase} ${job.total ? `${job.n}/${job.total}` : ""}</span>
@@ -143,6 +143,10 @@ function Job({ job }) {
   }
   if (job.error) return html`<p class="small bad">${what} failed: ${job.error}</p>`;
   const r = job.result || {};
+  if (job.kind === "check") {
+    return html`<p class="small ${r.ok ? "ok" : "bad"}">${r.ok ? "The ES-8 matches the show played."
+      : "The ES-8 does not match the show played: send the project to the stage again from ES8 Designer."}</p>`;
+  }
   return html`<p class="small ok">${job.kind === "backup" ? `Backed up as “${r.name}”.`
     : r.pages === 0 ? `The ES-8 already matched the backup (kept the previous state as “${r.before}”).`
     : `${r.pages} page(s) written${r.confirmed ? " and verified" : ", some could not be verified"}. Previous state kept as “${r.before}”.`}</p>`;

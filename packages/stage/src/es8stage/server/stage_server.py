@@ -10,6 +10,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import queue
 import subprocess
@@ -18,7 +19,10 @@ import time
 from datetime import datetime
 from pathlib import Path
 
-from es8stage.stage import Stage, check_show
+from es8stage.stage import Stage, check_show, is_playable
+
+# Mode édition oublié : il se coupe seul après ce temps sans message d'un éditeur vers l'ES-8.
+EDIT_IDLE_S = 600
 
 
 class StageServer:
@@ -36,6 +40,10 @@ class StageServer:
         self.midi_seq = 0
         self.midi_cond = threading.Condition()
         self.edit = False  # mode édition : la scène est en pause, les éditeurs peuvent écrire sur l'ES-8
+        self._edit_touched = 0.0  # dernier signe de vie d'un éditeur en mode édition
+        # Vérification de la setlist sur l'ES-8 (pc_map lue par SysEx) : None, ou {exported, ok, setlists, …}.
+        self.checked: dict | None = None
+        self._want_check = True
         self._taps: list[queue.Queue] = []  # SysEx reçu, pour les travaux de l'hôte (sauvegarde, restauration)
         self.job: dict | None = None  # travail en cours ou dernier fini : {kind, phase, n, total, done, error, result}
         self.stage = Stage(send=self._send, changed=self._changed)
@@ -62,6 +70,7 @@ class StageServer:
         with self.lock:
             self.stage.backup = bool(saved.get("backup")) if same else False
             self.stage.load(show, saved.get("pos") if same else None)  # reprise sans rien envoyer
+        self._want_check = True
 
     def show_updated(self) -> None:
         """Le fichier show vient d'être remplacé (POST /stage/show.json) : le recharger."""
@@ -136,6 +145,8 @@ class StageServer:
             return f"The stage host is busy ({self.job['kind']} of the ES-8): try again when it is done."
         if not all(self._allowed(m) for m in messages):
             return "Writing to the ES-8 is locked while the stage plays: turn Edit mode on (it pauses ES8 Companion)."
+        if self.edit:
+            self._edit_touched = time.monotonic()
         for m in messages:
             if not self._send(m):
                 return "MIDI send failed."
@@ -147,13 +158,21 @@ class StageServer:
             self.midi_cond.wait_for(lambda: self.midi_seq > after, timeout=timeout)
             return [(n, d) for n, d in self.midi_log if n > after]
 
-    def set_edit(self, on: bool) -> None:
+    def set_edit(self, on: bool, reason: str = "") -> None:
         if not on and self.busy() and self.job["kind"] == "restore":
             return  # une restauration écrit encore : la scène reste en pause
-        self.edit = bool(on)
+        was, self.edit = self.edit, bool(on)
+        self._edit_touched = time.monotonic()
+        if was and not self.edit:
+            self._want_check = True  # l'ES-8 a pu être écrit : on revérifie la setlist
         with self.lock:
-            self.stage.traffic.update({"in": "host", "action": "Edit mode on" if on else "Edit mode off"})
+            self.stage.traffic.update({"in": "host", "action": reason or ("Edit mode on" if on else "Edit mode off")})
         self._changed()
+
+    def _edit_idle(self) -> None:
+        """Un mode édition oublié laisserait les switches sans effet pendant le concert : il se coupe seul."""
+        if self.edit and not self.busy() and time.monotonic() - self._edit_touched > EDIT_IDLE_S:
+            self.set_edit(False, "Edit mode off (unused for 10 min)")
 
     def reconnect(self) -> None:
         """Bouton de la page de l'hôte : ferme le port et relance aussitôt la liaison (Bluetooth compris)."""
@@ -255,6 +274,49 @@ class StageServer:
 
         return self._start_job("restore", work)
 
+    def check(self) -> str | None:
+        """Lit la pc_map de l'ES-8 (8 pages système, quelques secondes) et la compare au show joué :
+        chaque setlist jouable doit avoir son empreinte, et l'ES-8 écouter le canal du show. Lecture seule."""
+        from es8core.codec import split_dump
+        from es8core.session import read_pages_async
+        from es8core.system import decode_system
+
+        show = self.stage.show
+        if not show:
+            return "No show to check."
+        self._want_check = False
+
+        async def work(transport):
+            frames, missing = await read_pages_async(transport, list(range(8)))
+            system = split_dump(list(frames.values())).system
+            if missing or system is None:
+                raise RuntimeError("The ES-8 settings could not be read.")
+            values = decode_system(system)
+            setlists = []
+            for sl in show["setlists"]:
+                if not is_playable(sl) or not sl.get("pc_map"):
+                    continue
+                entries = values[f"pc_map_bank{sl['midi_bank']}_pc"]
+                digest = "sha256:" + hashlib.sha256(bytes(b for e in entries for b in e.to_bytes(2, "big"))).hexdigest()
+                setlists.append({"name": sl["name"], "midi_bank": sl["midi_bank"], "ok": digest == sl["pc_map"]})
+            channel = values["midi_setting_rx_ch"] + 1
+            ok = all(s["ok"] for s in setlists) and channel == self.stage.es8_channel()
+            self.checked = {"key": self._check_key(show), "ok": ok, "setlists": setlists,
+                            "channel": channel, "show_channel": self.stage.es8_channel(), "at": time.time()}
+            return self.checked
+
+        return self._start_job("check", work)
+
+    def _check_key(self, show: dict | None) -> str:
+        """Ce que la vérification compare : l'empreinte de chaque setlist et le canal de l'ES-8."""
+        return json.dumps([[sl.get("midi_bank"), sl.get("pc_map")] for sl in (show or {}).get("setlists", [])]
+                          + [self.stage.es8_channel()])
+
+    def _auto_check(self) -> None:
+        """Après un branchement, un nouveau show ou la fin du mode édition : on revérifie, sans gêner personne."""
+        if self._want_check and self._out is not None and self.stage.show and not self.edit and not self.busy():
+            self.check()
+
     def _ble_reconnect(self) -> None:
         """Relance la liaison Bluetooth : un court balayage (BlueZ doit revoir l'appareil), puis la connexion."""
         for cmd in (["bluetoothctl", "--timeout", "6", "scan", "on"], ["bluetoothctl", "connect", self.ble_address]):
@@ -286,6 +348,7 @@ class StageServer:
                 self._out = mido.open_output(outs[0])
                 self.port_name = outs[0]
                 self.log(f"MIDI: {outs[0]}")
+                self._want_check = True
                 self._changed()
             except OSError as exc:
                 self.log(f"MIDI open failed: {exc}")
@@ -299,6 +362,8 @@ class StageServer:
             self._ble_reconnect()
         if self.show_file.is_file() and self.show_file.stat().st_mtime_ns != self._show_mtime:
             self._load_show()
+        self._edit_idle()
+        self._auto_check()
 
     def _close(self) -> None:
         for p in (self._in, self._out):
@@ -317,6 +382,15 @@ class StageServer:
         snap["midi"] = {"connected": self._out is not None, "port": self.port_name, "match": self.midi_match}
         snap["edit"] = self.edit
         snap["job"] = self.job
+        show = snap.get("show")
+        if self.busy() and self.job["kind"] == "check":
+            snap["check"] = {"state": "checking"}
+        elif self.checked and self.checked["key"] == self._check_key(show):
+            snap["check"] = {"state": "ok" if self.checked["ok"] else "mismatch", **self.checked}
+        elif self.job and self.job["kind"] == "check" and self.job.get("error"):
+            snap["check"] = {"state": "error", "error": self.job["error"]}
+        else:
+            snap["check"] = {"state": "unknown"}
         snap["version"] = self.version
         return snap
 
@@ -325,6 +399,8 @@ class StageServer:
         kind = cmd.get("type")
         if kind == "edit":
             return self.set_edit(bool(cmd.get("on")))
+        if kind == "check":
+            return self.check()
         if self.edit and kind in ("act", "press", "goto", "resend"):
             return  # mode édition : la scène est en pause
         with self.lock:

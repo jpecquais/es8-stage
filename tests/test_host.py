@@ -113,3 +113,54 @@ def test_restore_needs_edit_mode_and_writes_only_what_differs(host):
     assert r["pages"] == 1 and r["confirmed"] and es8.writes == 2
     assert b"".join(es8.mem[c] for c in sorted(es8.mem)) == lib.read("backups", "Good")
     assert lib.read("backups", r["before"]) != lib.read("backups", "Good")  # l'état d'avant est gardé
+
+
+def _show_for(es8, bank_entries=None, channel=None):
+    """Le show de démo, avec l'empreinte de la pc_map (banque 0) du faux ES-8, ou d'autres entrées."""
+    import hashlib
+    import json
+
+    from es8core.codec import split_dump
+    from es8core.system import decode_system
+
+    values = decode_system(split_dump([es8.mem[c] for c in sorted(es8.mem)]).system)
+    entries = bank_entries or values["pc_map_bank0_pc"]
+    show = json.loads((Path(__file__).parents[1] / "web" / "companion" / "demo-show.json").read_text())
+    show["setlists"] = show["setlists"][:1]
+    show["setlists"][0]["pc_map"] = "sha256:" + hashlib.sha256(bytes(b for e in entries for b in e.to_bytes(2, "big"))).hexdigest()
+    show["es8"] = {"rx_channel": channel or values["midi_setting_rx_ch"] + 1}
+    return show
+
+
+def test_check_compares_the_setlist_with_the_es8(host):
+    server, es8, _ = host
+    server.stage.load(_show_for(es8))
+    assert server.check() is None
+    assert wait_job(server)["ok"] and server.snapshot()["check"]["state"] == "ok"
+    assert es8.writes == 0  # lecture seule
+    server.stage.load(_show_for(es8, bank_entries=[5] * 128))
+    assert server.snapshot()["check"]["state"] == "unknown"  # autre show : rien de vérifié
+    server.check()
+    wait_job(server)
+    snap = server.snapshot()["check"]
+    assert snap["state"] == "mismatch" and snap["setlists"][0]["ok"] is False
+    server.stage.load(_show_for(es8, channel=16 if es8.mem else 1))
+    server.check()
+    assert wait_job(server)["ok"] is False  # l'ES-8 n'écoute pas le canal du show
+
+
+def test_auto_check_and_forgotten_edit_mode(host, monkeypatch):
+    import es8stage.server.stage_server as mod
+
+    server, es8, _ = host
+    server.stage.load(_show_for(es8))
+    server.set_edit(True)
+    server._auto_check()
+    assert server.job is None  # pas pendant que les éditeurs écrivent
+    monkeypatch.setattr(mod, "EDIT_IDLE_S", 0)
+    server._edit_idle()
+    assert not server.edit and "unused" in server.stage.traffic["action"]
+    server._auto_check()  # le mode édition fini : on revérifie
+    assert server.job["kind"] == "check" and wait_job(server)["ok"]
+    server._auto_check()
+    assert server.job["done"]  # une seule fois

@@ -34,7 +34,7 @@ def test_serves_both_repositories_apps(server):
     for path in ("/designer/", "/companion/", "/host/", "/stage-shared/bridge.js", "/control/", "/shared/engine.js"):
         assert request(server, "GET", path)[0] == 200, path
     status, _, res = request(server, "GET", "/")
-    assert status == 302 and res.getheader("Location") == "/host/"
+    assert status == 302 and res.getheader("Location") == "/companion/"
     page = request(server, "GET", "/control/")[1].decode()
     assert page.index("stage-shared/control.js") < page.index('src="app.js"')  # le pont avant l'appli
 
