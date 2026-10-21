@@ -1,7 +1,7 @@
 """La Companion côté hôte de scène (Pi) : la même logique que `web/companion/show.js`.
 
 Spéc : `docs/stage-host.md`. Pur, sans MIDI ni réseau : le service
-(`es8ctl web --stage`) s'en sert pour tenir la position et l'état des
+(`es8stage serve --stage`) s'en sert pour tenir la position et l'état des
 switches, et décider quoi envoyer. Les deux implémentations sont vérifiées
 sur les mêmes cas (`tests/test_stage.py`) pour ne pas diverger.
 

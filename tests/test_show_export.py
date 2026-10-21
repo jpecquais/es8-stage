@@ -10,7 +10,7 @@ import pytest
 from test_rig_model import FIXTURE, PEDALBOARD, project_doc, write_project
 
 from es8core.diff import load_dump
-from es8core.model import ModelError, compile_project, export_show, load_project, project_from_doc
+from es8stage.model import ModelError, compile_project, export_show, load_project, project_from_doc
 
 SHOW_JS = Path(__file__).parents[1] / "web" / "companion" / "show.js"
 
@@ -90,7 +90,7 @@ def test_companion_params_must_be_actions():
 def test_cli_rig_show(tmp_path):
     from typer.testing import CliRunner
 
-    from es8ctl.cli import app
+    from es8stage.cli import app
 
     out = tmp_path / "show.json"
     result = CliRunner().invoke(app, ["rig", "show", str(write_project(tmp_path)), "-o", str(out)])
@@ -116,7 +116,7 @@ console.log(JSON.stringify({{ problems: S.checkShow(show), now: S.view(show, S.s
 
 
 def test_web_show_export():
-    from es8core import webapp
+    from es8stage import webapp
 
     show = json.loads(webapp.show_export(json.dumps(companion_doc())))["show"]
     assert show["setlists"][0]["name"] == "Nov" and show["input_preset"]["bindings"][0]["number"] == 80
@@ -128,9 +128,9 @@ def test_web_show_export():
 
 
 def test_companion_switches_are_plain_buttons(tmp_path):
-    from es8core.model import compile_rig
-    from es8core.model.compile import _CTL_SLOT
-    from es8core.model.schema import companion_settings
+    from es8stage.model import compile_rig
+    from es8stage.model.compile import _CTL_SLOT
+    from es8stage.model.schema import companion_settings
 
     doc = project_doc()
     doc["surfaces"]["lead"]["switches"].update({

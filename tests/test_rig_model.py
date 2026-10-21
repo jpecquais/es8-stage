@@ -8,7 +8,7 @@ import pytest
 from es8core.apply import plan_changes
 from es8core.codec import split_frames, unpack_page
 from es8core.diff import load_dump
-from es8core.model import ModelError, chain_notation, compile_project, compile_rig, load_project
+from es8stage.model import ModelError, chain_notation, compile_project, compile_rig, load_project
 from es8core.patch import decode_patch
 from es8core.routing import render
 from es8core.system import decode_system
@@ -175,7 +175,7 @@ def test_too_many_midi_slots(dump):
 
 
 def test_surface_is_refused():
-    from es8core.model.schema import check_pedalboard, check_surface
+    from es8stage.model.schema import check_pedalboard, check_surface
 
     bad = {"schema": "es8ctl.surface/1", "switches": {
         "NUM9": {"role": "tap"},
@@ -272,7 +272,7 @@ def test_setup_bank_must_match_rig(tmp_path):
 def test_cli_rig_compile_then_status(tmp_path):
     from typer.testing import CliRunner
 
-    from es8ctl.cli import app
+    from es8stage.cli import app
 
     runner = CliRunner()
     setup = write_project(tmp_path)
@@ -297,7 +297,7 @@ def test_cli_rig_compile_then_status(tmp_path):
 def test_cli_rig_compile_reports_problems(tmp_path):
     from typer.testing import CliRunner
 
-    from es8ctl.cli import app
+    from es8stage.cli import app
 
     setup = write_project(tmp_path, setlist_songs=[{"rig": "../rigs/crunch.json", "sequence": ["Bridge"]}])
     result = CliRunner().invoke(app, ["rig", "compile", str(setup), "-b", str(FIXTURE)])
@@ -318,7 +318,7 @@ def project_doc():
 
 
 def test_web_rig_preview_and_stage():
-    from es8core import webapp
+    from es8stage import webapp
 
     webapp.load_syx(FIXTURE.read_bytes())
     webapp.discard()
@@ -333,7 +333,7 @@ def test_web_rig_preview_and_stage():
 
 
 def test_web_rig_preview_reports_problems_and_missing_reads():
-    from es8core import webapp
+    from es8stage import webapp
 
     webapp.load_syx(FIXTURE.read_bytes())
     bad = project_doc()
@@ -350,7 +350,7 @@ def test_web_rig_preview_reports_problems_and_missing_reads():
 def test_cli_accepts_a_project_document(tmp_path):
     from typer.testing import CliRunner
 
-    from es8ctl.cli import app
+    from es8stage.cli import app
 
     path = tmp_path / "project.json"
     path.write_text(json.dumps(project_doc()))
@@ -363,7 +363,7 @@ def test_cli_accepts_a_project_document(tmp_path):
 
 
 def test_setlist_of_tracks_in_a_project_document(dump):
-    from es8core.model import project_from_doc
+    from es8stage.model import project_from_doc
 
     doc = project_doc()
     doc["tracks"] = {
@@ -376,7 +376,7 @@ def test_setlist_of_tracks_in_a_project_document(dump):
 
 
 def test_track_problems_name_the_track(dump):
-    from es8core.model import project_from_doc
+    from es8stage.model import project_from_doc
 
     doc = project_doc()
     doc["tracks"] = {"t": {"schema": "es8ctl.track/1", "name": "Song A", "rig": "crunch", "sequence": ["Solo"]},
@@ -409,7 +409,7 @@ def test_setlist_of_track_files_on_disk(dump, tmp_path):
 
 
 def test_pedalboard_v2_view():
-    from es8core.model.schema import check_pedalboard
+    from es8stage.model.schema import check_pedalboard
 
     view = check_pedalboard(PEDALBOARD)
     assert view["loops"]["L2"] == {"name": "Overdrive", "device": "od"}
@@ -426,7 +426,7 @@ def test_a_device_can_sit_in_a_loop_and_receive_midi(dump):
 
 
 def test_pedalboard_v2_refuses_a_loop_used_twice():
-    from es8core.model.schema import check_pedalboard
+    from es8stage.model.schema import check_pedalboard
 
     bad = json.loads(json.dumps(PEDALBOARD))
     bad["devices"]["fuzz"]["loops"] = ["L2"]
@@ -497,7 +497,7 @@ def test_rig_v2_is_refused(dump, edit, message):
 
 
 def test_rigs_cannot_share_patches():
-    from es8core.model import project_from_doc
+    from es8stage.model import project_from_doc
 
     doc = project_doc()
     doc["rigs"]["pulse"] = {**json.loads(json.dumps(RIG_V2)), "start": "11-8"}  # 11-8 … 13-1 : chevauche 12-1, 12-2
@@ -508,7 +508,7 @@ def test_rigs_cannot_share_patches():
 
 
 def test_setlist_steps_use_the_v2_patches(dump):
-    from es8core.model import project_from_doc
+    from es8stage.model import project_from_doc
 
     doc = project_doc()
     doc["rigs"]["pulse"] = json.loads(json.dumps(RIG_V2))
@@ -549,7 +549,7 @@ def backup_doc():
 
 
 def test_backup_patches_sit_at_the_top_of_the_pc_map(dump):
-    from es8core.model import export_show, project_from_doc
+    from es8stage.model import export_show, project_from_doc
 
     project = project_from_doc(backup_doc())
     entries = compile_project(project, dump).system_wanted["pc_map_bank1_pc"]
@@ -570,7 +570,7 @@ def test_backup_patches_sit_at_the_top_of_the_pc_map(dump):
     ],
 )
 def test_backup_is_refused(edit, message):
-    from es8core.model import project_from_doc
+    from es8stage.model import project_from_doc
 
     doc = backup_doc()
     edit(doc)
@@ -593,7 +593,7 @@ def test_backup_is_refused(edit, message):
     ],
 )
 def test_abbreviate(short, name, expected):
-    from es8core.model.abbrev import abbreviate
+    from es8stage.model.abbrev import abbreviate
 
     assert abbreviate(short, name) == expected
 
@@ -611,7 +611,7 @@ def test_long_snapshot_names_are_shortened_in_the_patch(dump):
 
 
 def test_a_title_is_written_the_same_in_all_its_snapshots():
-    from es8core.model.abbrev import patch_names
+    from es8stage.model.abbrev import patch_names
 
     rig = {"short": "PULSE", "snapshots": [{"name": "Any Color You Like Rythme"}, {"name": "Any Color You Like Lead"}]}
     assert [n for n, _ in patch_names(rig)] == ["PULSE ACY Rythme", "PULSE ACY Lead"]

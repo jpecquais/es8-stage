@@ -13,8 +13,8 @@ import json
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from ..codec import CodecError, parse_patch_label, patch_label
-from ..names import NAME_LEN
+from es8core.codec import CodecError, parse_patch_label, patch_label
+from es8core.names import NAME_LEN
 
 PEDALBOARD_SCHEMA = "es8ctl.pedalboard/1"  # forme de la vue interne
 PEDALBOARD_SCHEMA_V2 = "es8ctl.pedalboard/2"  # fichier : une liste d'appareils
@@ -275,7 +275,7 @@ def check_surface(doc: dict, pedalboard: dict, where: str = "surface") -> dict:
             if sw.get("action") not in COMPANION_ACTIONS:
                 problems.append(f"{at}.action: one of {', '.join(COMPANION_ACTIONS)}.")
         elif role == "es8":
-            from ..names import CTL_FUNCTIONS
+            from es8core.names import CTL_FUNCTIONS
 
             if str(sw.get("function", "")).upper() not in CTL_FUNCTIONS:
                 problems.append(f"{at}.function: one of {', '.join(CTL_FUNCTIONS)}.")

@@ -4,7 +4,7 @@ import json
 
 import pytest
 
-from es8ctl.library import Library, LibraryError
+from es8stage.server.library import Library, LibraryError
 
 PROJECT = json.dumps({"schema": "es8ctl.project/1", "name": "PULSE"}).encode()
 SHOW = json.dumps({"schema": "es8ctl.show/1", "exported": "1", "setlists": []}).encode()

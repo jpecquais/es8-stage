@@ -12,7 +12,7 @@ import hashlib
 import re
 from datetime import UTC, datetime
 
-from ..codec import patch_label
+from es8core.codec import patch_label
 from .compile import _value, backup_pcs, pc_map_entries, setlist_steps, snapshot_programs
 from .schema import (
     COMPANION_ROLES,

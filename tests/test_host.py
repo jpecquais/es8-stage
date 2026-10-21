@@ -8,9 +8,9 @@ import pytest
 from es8core.apply import plan_changes
 from es8core.codec import BULK_LAST_COUNTER, parse_es8_bulk_frame, split_frames
 from es8core.codec.roland import checksum
-from es8ctl.host_auth import HostAuth
-from es8ctl.library import Library
-from es8ctl.stage_server import StageServer
+from es8stage.server.host_auth import HostAuth
+from es8stage.server.library import Library
+from es8stage.server.stage_server import StageServer
 
 FIXTURE = Path(__file__).parent / "fixtures" / "es8_bulk_session2_name_A.syx"
 

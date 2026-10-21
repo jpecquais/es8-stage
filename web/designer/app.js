@@ -2,11 +2,12 @@
 // On décrit le pedalboard, des surfaces, des rigs (N snapshots sur des patchs consécutifs) et
 // des setlists ; le moteur Python compile le tout (es8core.model) contre l'état
 // lu de l'ES-8. Le projet vit dans ce navigateur et s'exporte en un fichier
-// `es8ctl.project/1`, que `es8ctl rig compile` accepte aussi. Rien n'est
+// `es8ctl.project/1`, que `es8stage rig compile` accepte aussi. Rien n'est
 // envoyé à l'ES-8 avant « Write ».
 
 import { html, render, useState, useEffect, useRef, useMemo } from "../shared/vendor/preact-htm.module.js";
 import * as E from "../shared/engine.js";
+import * as B from "../stage-shared/bridge.js"; // moteur es8stage, MIDI de l'hôte de scène
 
 const { store, call, mutate, toast } = E;
 
@@ -78,7 +79,7 @@ let engineWarned = false;
 const patchNames = (rig) => {
   try { return call("patch_names", JSON.stringify(rig)); } catch {
     // Moteur d'une version antérieure (serveur lancé avant la mise à jour) : le dire plutôt que d'afficher un nom faux.
-    if (!engineWarned) { engineWarned = true; setTimeout(() => toast("The ES8 engine in this page is out of date: reload the page (restart es8ctl web if it persists).", "error")); }
+    if (!engineWarned) { engineWarned = true; setTimeout(() => toast("The ES8 engine in this page is out of date: reload the page (restart es8stage serve if it persists).", "error")); }
     return [];
   }
 };
@@ -169,7 +170,7 @@ function exportShow(doc) {
     return;
   }
   E.download(JSON.stringify(r.show, null, 2), `${slug(doc.name, [])}.show.json`, "application/json");
-  // Le serveur (es8ctl web, le Pi) le garde comme show courant : toutes les Companion ouvertes le prennent.
+  // Le serveur (es8stage serve, le Pi) le garde comme show courant : toutes les Companion ouvertes le prennent.
   fetch("../stage/show.json", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(r.show) })
     .then((res) => toast(res.ok ? "Show exported and sent to the server: every open ES8 Companion takes it." : "Show exported (file)."))
     .catch(() => toast("Show exported. ES8 Companion in this browser opens it by itself."));
@@ -259,7 +260,7 @@ const project = {
   },
 };
 
-// ================================================================= bibliothèque de l'hôte (es8ctl web, le Pi)
+// ================================================================= bibliothèque de l'hôte (es8stage serve, le Pi)
 // Le projet ouvert depuis la bibliothèque y est enregistré à chaque changement ; Mac et iPad partagent ainsi
 // le même projet. En revenant sur la page, une version plus récente (écrite ailleurs) est reprise.
 const LIB = "../library/";
@@ -546,7 +547,7 @@ function Menu({ s, doc }) {
       ${open ? html`<div class="pop">
         ${s.stageHost ? html`<div class="stage-host">
           <b>Stage host</b> <span class="muted small">MIDI goes through the stage host${s.stageHost.connected ? "" : " (ES-8 not connected)"}.</span>
-          <label class="check"><input type="checkbox" checked=${s.stageHost.edit} onChange=${(e) => E.setEditMode(e.target.checked)} />
+          <label class="check"><input type="checkbox" checked=${s.stageHost.edit} onChange=${(e) => B.setEditMode(e.target.checked)} />
             Edit mode: pause ES8 Companion and allow writing to the ES-8</label>
         </div>` : null}
         ${s.midi === "ok" ? html`
@@ -580,7 +581,7 @@ function Menu({ s, doc }) {
         <label>Project name<input value=${doc.name || ""} onInput=${(e) => project.update((d) => { d.name = e.target.value; })} /></label>
         <div class="row">
           <button class="btn small" onClick=${() => E.download(JSON.stringify(doc, null, 2), `${slug(doc.name, [])}.es8project.json`, "application/json")}
-            title="One file for es8ctl rig compile, or to open on another computer">Export file</button>
+            title="One file for es8stage rig compile, or to open on another computer">Export file</button>
           <label class="btn small">Open file<input type="file" accept=".json" hidden
             onChange=${(e) => { e.target.files[0] && importProject(e.target.files[0]); e.target.value = ""; setOpen(false); }} /></label>
         </div>
@@ -595,7 +596,7 @@ function Menu({ s, doc }) {
           }}>Start empty</button>
         </div>
         <p class="muted small sep">${lib.current ? "The project is saved in the library at each change." : "The project is kept in this browser."} Classic patch editing: <a href="../control/">ES8 Control</a>.
-          Free software under the AGPL-3.0 · <a href="https://github.com/jpecquais/es8" target="_blank" rel="noopener">source</a></p>
+          Free software under the AGPL-3.0 · <a href="https://github.com/jpecquais/es8-stage" target="_blank" rel="noopener">source</a></p>
       </div>` : null}
       ${libOpen ? html`<${LibraryDialog} lib=${lib} doc=${doc} onClose=${() => setLibOpen(false)} />` : null}
     </div>`;
@@ -803,7 +804,7 @@ function IntroTab({ doc, go }) {
             <li><b>Write.</b> Only the pages that differ are sent, then read back and resent until verified. A backup is kept in this browser.</li>
           </ol>
           <p class="muted small">Your project lives in this browser: export it from the menu at the top right (one file, also read by
-            <code>es8ctl rig compile</code>). Patch-by-patch editing stays in <a href="../control/">ES8 Control</a>.</p>
+            <code>es8stage rig compile</code>). Patch-by-patch editing stays in <a href="../control/">ES8 Control</a>.</p>
           <div><button class="btn primary" onClick=${() => go({ tab: "pedalboard" })}>Start with the pedalboard →</button></div>
         </section>
       </main>

@@ -1,6 +1,6 @@
-"""Bibliothèque de sets de `es8ctl web` (docs/stage-host.md) : projets, shows et sauvegardes de l'ES-8.
+"""Bibliothèque de sets de `es8stage serve` (docs/stage-host.md) : projets, shows et sauvegardes de l'ES-8.
 
-Un dossier par sorte sous `~/.local/share/es8ctl/library/` ; un fichier par élément, nommé par
+Un dossier par sorte sous `~/.local/share/es8stage/library/` ; un fichier par élément, nommé par
 l'utilisateur. Le show joué est une copie dans `show.json` (celui que lit l'hôte de scène) ; son
 nom dans la bibliothèque est noté dans `playing.json`.
 """

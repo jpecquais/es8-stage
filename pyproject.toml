@@ -1,0 +1,26 @@
+# Dépôt es8-stage (ES Eight Stage) : un workspace uv avec es8stage, et le moteur et la ligne
+# de commande de l'éditeur (es8core, es8ctl) pris dans le sous-module es8/.
+[project]
+name = "es8-stage-workspace"
+version = "0.1.0"
+requires-python = ">=3.11"
+dependencies = ["es8stage", "es8core", "es8ctl"]
+
+[tool.uv]
+package = false
+
+[tool.uv.workspace]
+members = ["packages/stage", "es8/packages/core", "es8/packages/cli"]
+
+[tool.uv.sources]
+es8stage = { workspace = true }
+es8core = { workspace = true }
+es8ctl = { workspace = true }
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

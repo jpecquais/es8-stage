@@ -1,0 +1,12 @@
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+dist/
+*.egg-info/
+.DS_Store
+
+# Dumps et sauvegardes personnels
+captures/
+backups/
+*.bel

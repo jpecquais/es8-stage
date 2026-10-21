@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from es8core import stage as P
+from es8stage import stage as P
 
 COMPANION = Path(__file__).parents[1] / "web" / "companion"
 DEMO = json.loads((COMPANION / "demo-show.json").read_text(encoding="utf-8"))

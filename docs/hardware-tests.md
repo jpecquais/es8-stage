@@ -12,7 +12,7 @@ Projet et script : `tests/hardware/` (rigs en banques 97–98, setlists en
 banques MIDI 0–1) :
 
 ```sh
-es8ctl rig compile tests/hardware/probe/setup.json -b <lecture complète> -o changes.json
+es8stage rig compile tests/hardware/probe/setup.json -b <lecture complète> -o changes.json
 es8ctl apply changes.json -b <lecture complète> --write --port <port> --confirm
 uv run python tests/hardware/run_probe.py   # PC / Bank Select → CC100 reçus, en JSON
 ```

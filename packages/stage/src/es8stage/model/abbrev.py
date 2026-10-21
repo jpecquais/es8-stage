@@ -30,7 +30,7 @@ from __future__ import annotations
 import re
 import unicodedata
 
-from ..names import NAME_LEN
+from es8core.names import NAME_LEN
 
 STOP_WORDS = {
     "a", "an", "the", "of", "for", "to", "in", "on", "and", "at", "by", "with", "is", "are", "this", "that",

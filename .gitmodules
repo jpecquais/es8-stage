@@ -1,0 +1,3 @@
+[submodule "es8"]
+	path = es8
+	url = https://github.com/jpecquais/es8.git

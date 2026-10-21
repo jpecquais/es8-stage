@@ -1,6 +1,6 @@
-"""Moteur de scène de `es8ctl web --stage` (docs/stage-host.md) : MIDI, état, événements pour les écrans.
+"""Moteur de scène de `es8stage serve --stage` (docs/stage-host.md) : MIDI, état, événements pour les écrans.
 
-- La logique est `es8core.stage.Stage` ; ici, seulement les entrées/sorties.
+- La logique est `es8stage.stage.Stage` ; ici, seulement les entrées/sorties.
 - MIDI : mido + python-rtmidi. Le port est cherché par un morceau de son nom (« WIDI ») et
   rouvert tout seul s'il disparaît ; avec une adresse Bluetooth, on relance la connexion.
 - Écrans : l'état est poussé en Server-Sent Events (`/stage/events`), les gestes arrivent en
@@ -18,7 +18,7 @@ import time
 from datetime import datetime
 from pathlib import Path
 
-from es8core.stage import Stage, check_show
+from es8stage.stage import Stage, check_show
 
 
 class StageServer:

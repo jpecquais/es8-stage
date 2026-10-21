@@ -9,7 +9,7 @@ import { openWebMidi } from "./midi.js";
 
 const STORE_KEY = "es8companion";
 const INBOX = "es8companion/incoming"; // déposé par ES8 Designer (« Show »)
-// Show courant du serveur (es8ctl web, le Pi) : pris à l'ouverture et suivi ; un show chargé ici y est déposé.
+// Show courant du serveur (es8stage serve, le Pi) : pris à l'ouverture et suivi ; un show chargé ici y est déposé.
 // Sans serveur (site statique), ces requêtes échouent en silence et l'app marche comme avant.
 const SERVER_SHOW = "../stage/show.json";
 const SERVER_POLL_MS = 5000;
@@ -76,7 +76,7 @@ function App() {
   const [traffic, setTraffic] = useState({ in: "", action: "", out: "" });
   const [error, setError] = useState("");
   const debounce = useRef(S.makeDebounce()).current;
-  // Mode « écran d'un hôte de scène » (docs/stage-host.md) : la page servie par un `es8ctl web --stage`
+  // Mode « écran d'un hôte de scène » (docs/stage-host.md) : la page servie par un `es8stage serve --stage`
   // ne touche pas au MIDI ; elle affiche l'état poussé par l'hôte et lui envoie les gestes.
   const remote = useRef(false);
   const [host, setHost] = useState(null); // {connected, port} du MIDI de l'hôte
@@ -614,13 +614,13 @@ function Setlists({ show, pos, goTo, browse, setBrowse, setScreen }) {
 
 const MIDI_HELP = {
   pending: "Asking the browser for MIDI access…",
-  remote: "This screen shows the stage host (es8ctl web --stage): the host talks MIDI to the ES-8 itself, this screen only shows and controls it.",
+  remote: "This screen shows the stage host (es8stage serve --stage): the host talks MIDI to the ES-8 itself, this screen only shows and controls it.",
   insecure: "No MIDI on this address: browsers give MIDI only to secure pages (https, or localhost). On a stage host the ES-8 is driven by the host itself; this screen only shows and controls it.",
   unsupported: "This browser has no Web MIDI. Use Chrome or Edge (Android, Windows, macOS, Linux). Safari on iPhone and iPad has no Web MIDI.",
   denied: "MIDI access was refused. Allow it in the browser's site settings, then reload.",
 };
 
-/** Les shows de la bibliothèque du serveur (es8ctl web, le Pi) : en jouer un le donne à toutes les Companion. */
+/** Les shows de la bibliothèque du serveur (es8stage serve, le Pi) : en jouer un le donne à toutes les Companion. */
 function LibraryShows() {
   const [listing, setListing] = useState(null);
   const [busy, setBusy] = useState("");

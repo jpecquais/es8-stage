@@ -17,11 +17,11 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from ..codec import BulkDump, CodecError, patch_label, unpack_page
-from ..names import ASSIGN_SOURCES, ASSIGN_TARGETS, CTL_FUNCTIONS, CTL_SLOTS, LOOPS, NAME_LEN
-from ..patch import decode_patch
-from ..routing import parse as parse_chain
-from ..system import PC_MAP_ENTRIES, decode_system
+from es8core.codec import BulkDump, CodecError, patch_label, unpack_page
+from es8core.names import ASSIGN_SOURCES, ASSIGN_TARGETS, CTL_FUNCTIONS, CTL_SLOTS, LOOPS, NAME_LEN
+from es8core.patch import decode_patch
+from es8core.routing import parse as parse_chain
+from es8core.system import PC_MAP_ENTRIES, decode_system
 from .abbrev import patch_names
 from .schema import (
     RIG_SCHEMA,

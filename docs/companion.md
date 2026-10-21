@@ -115,7 +115,7 @@ Autonome : pas de chemin ni de référence à résoudre.
   envoyer. `steps` est produit par la même fonction que `compile_setlist`
   (voir « Côté modèle ») : le show et la `pc_map` ne peuvent pas diverger.
 - `pc_map` : empreinte des 128 entrées compilées de la banque MIDI. La
-  Companion l'affiche ; `es8ctl rig status` et Designer peuvent la comparer
+  Companion l'affiche ; `es8stage rig status` et Designer peuvent la comparer
   à l'ES-8. La Companion ne lit pas l'ES-8 (pas de SysEx).
 - Un show porte toutes les setlists du projet ; il ne contient que ce que
   la Companion affiche.
@@ -254,8 +254,8 @@ Voir la maquette.
 - `web/companion/`, site statique. Pas de Pyodide. Web MIDI sans SysEx.
   Transport isolé (`ports()`, `use(in, out)`, `send`, `onMessage`,
   `onPortsChange`).
-- Show courant du serveur : `GET/POST /stage/show.json` de `es8ctl web`
-  (fichier `~/.local/share/es8ctl/show.json`) ; la Companion le prend à
+- Show courant du serveur : `GET/POST /stage/show.json` de `es8stage serve`
+  (fichier `~/.local/share/es8stage/show.json`) ; la Companion le prend à
   l'ouverture et le suit, le Designer (Show) et « Load a show » l'y déposent.
 - PWA (hors ligne), Screen Wake Lock, `localStorage` (show, position,
   ports, table d'entrée, préférences).
@@ -265,7 +265,7 @@ Voir la maquette.
   par une interface USB-MIDI DIN (pas de Bluetooth sur scène). À spécifier
   à part (`docs/stage-host.md`, à écrire).
 - Autres hôtes possibles pour répéter : Chrome sur ordinateur ou Android ;
-  iOS par un navigateur Web MIDI. `es8ctl web --lan` sert sur le réseau
+  iOS par un navigateur Web MIDI. `es8stage serve --lan` sert sur le réseau
   local.
 
 ## Côté modèle (`es8core`)
@@ -275,7 +275,7 @@ Fait le 2026-10-19 :
 1. `setlist_steps(project, setlist, path)` : la mise à plat des pas, seule
    source pour `compile_setlist` (la `pc_map`) et `export_show`.
 2. `export_show(project) -> dict` (`es8core/model/show.py`) et la commande
-   `es8ctl rig show <setup|projet> -o show.json`. L'id d'un rig est son id
+   `es8stage rig show <setup|projet> -o show.json`. L'id d'un rig est son id
    dans un document projet, sinon le nom de son fichier ; l'id d'une
    setlist, le nom de son fichier, sinon son nom simplifié.
 3. Pedalboard : `midi.companion: true` sur un appareil ; ses paramètres

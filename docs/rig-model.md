@@ -6,7 +6,7 @@ format de changements que `transform` (`{patches, system}`), consommé par
 `apply` (CLI) ou `_accept` (web). Aucun nouveau chemin vers l'ES-8.
 
 Statut : compilateur codé le 2026-10-19 (`packages/core/src/es8core/model/`,
-`es8ctl rig compile` / `rig status`, tests `tests/test_rig_model.py`), pas
+`es8stage rig compile` / `rig status`, tests `tests/test_rig_model.py`), pas
 encore essayé sur l'appareil. Restent : `rig import`, l'app web. Maquette d'interface :
 https://claude.ai/artifact/2GHaQenYoy9vhSk1RPRMrZ
 
@@ -250,7 +250,7 @@ Associe les rigs à leur place (premier patch, ou banque pour un rig v1) et les 
 
 Tout en un fichier, avec des ids au lieu de chemins : `pedalboard`,
 `surfaces`, `rigs`, `tracks`, `setlists` (chaque setlist porte sa
-`midi_bank`). C'est le format d'ES8 Designer (export) ; `es8ctl rig
+`midi_bank`). C'est le format d'ES8 Designer (export) ; `es8stage rig
 compile` l'accepte comme un `setup.json`.
 
 ## Compilation
@@ -333,7 +333,7 @@ snapshot rappelé depuis un autre rig charge les bons programmes).
 - **Divergence** : après un `read`, recompiler le rig contre le dump frais.
   Changements vides = synchronisé ; sinon la banque a été modifiée sur la
   pédale. Choix : réappliquer le rig, ou reprendre les valeurs de la pédale.
-- **Import** (`es8ctl rig import --bank 12`) : brouillon de rig depuis une
+- **Import** (`es8stage rig import --bank 12`) : brouillon de rig depuis une
   banque existante. Ce qui est identique dans les 8 patchs remonte au rig
   (chaîne, PC, assigns) ; ce qui varie devient l'état des snapshots. Même
   mécanique que la reprise des valeurs en cas de divergence.

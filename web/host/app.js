@@ -231,7 +231,7 @@ function System({ st, run, setGone }) {
         <button class="ghost" onClick=${act("restart", "Restart the stage host service? Screens reconnect by themselves.", "restart")}>Restart the service</button>
         <button class="ghost" onClick=${act("reboot", "Reboot the Pi? About a minute without the stage host.", "reboot")}>Reboot</button>
         <button class="danger" onClick=${act("poweroff", "Shut the Pi down? It stays off until it is unplugged and plugged in again.", "poweroff")}>Shut down</button>
-      </div>` : html`<p class="small muted">System actions exist only on a stage host (es8ctl web --stage).</p>`}
+      </div>` : html`<p class="small muted">System actions exist only on a stage host (es8stage serve --stage).</p>`}
     </section>`;
 }
 

@@ -5,15 +5,37 @@ dans la setlist, traduit les appuis sur les switches de l'ES-8 et envoie les
 messages aux machines. Les tablettes et téléphones du réseau n'en sont que
 des écrans (et des télécommandes). Rôles : `docs/companion.md`.
 
-Statut : décidé et codé le 2026-10-20 (`es8core.stage`, `es8ctl/stage_server.py`). Pi installé (`pedalbrain`, Raspberry Pi 3
+Statut : décidé et codé le 2026-10-20 (`es8stage.stage`, `es8stage/server/stage_server.py`). Pi installé (`pedalbrain`, Raspberry Pi 3
 Model B, Raspberry Pi OS Lite 64 bits « Trixie », sans GUI, utilisateur
 `es8`, SSH par clé). Liaison avec l'ES-8 : le WIDI Jack en Bluetooth (BLE
 MIDI de BlueZ) pour l'instant ; une interface USB-MIDI filaire plus tard.
 
+## Installation et mise à jour
+
+Depuis le Mac (version commitée, sous-module `es8` compris) :
+
+```sh
+deploy/pi/push.sh es8@pedalbrain.local --midi WIDI --ble 20:98:66:65:EA:44
+```
+
+Sur le Pi, `deploy/pi/install.sh` installe es8core, es8ctl et es8stage dans `~/venv`
+(paquets système `python3-mido`, `python3-rtmidi`), reprend les données de l'ancien
+service (`~/.local/share/es8ctl` → `es8stage`) et lance le service `es8-stage`
+(`deploy/pi/es8-stage.service`, arguments dans `/etc/default/es8-stage`).
+
+## Avec l'éditeur
+
+ES Eight Stage s'appuie sur l'éditeur (dépôt `es8`, sous-module `es8/`) sans le modifier :
+le serveur sert ES8 Control et le moteur web (`/control/`, `/shared/`) à côté de ses
+applis, et branche le moteur par ses points d'extension (`globalThis.ES8_ENGINE`,
+`web/stage-shared/bridge.js`) : module Python `es8stage.webapp` (l'éditeur plus les rigs),
+archive `engine.zip` (es8core + es8stage), et transport MIDI de l'hôte de scène. ES8
+Control servi par l'hôte reçoit `stage-shared/control.js` (encart du mode édition).
+
 ## Principe
 
 ```
-ES-8 ──BLE MIDI (WIDI)──▶ Pi : es8ctl stage ──BLE MIDI──▶ ES-8 (Thru) ──▶ machines
+ES-8 ──BLE MIDI (WIDI)──▶ Pi : es8stage serve ──BLE MIDI──▶ ES-8 (Thru) ──▶ machines
                                │  (logique, état, show)
                                └──HTTP + WebSocket──▶ Companion dans un navigateur (affichage, télécommande)
 ```
@@ -24,18 +46,18 @@ ES-8 ──BLE MIDI (WIDI)──▶ Pi : es8ctl stage ──BLE MIDI──▶ ES
 - Le Pi joue même si aucun écran n'est ouvert, et reprend sa position après
   un redémarrage (sans rien envoyer, comme la Companion).
 
-## Le service `es8ctl stage`
+## Le service `es8stage serve --stage`
 
 - Commande de la CLI, service systemd au démarrage du Pi.
-- **Logique** : `es8core.stage`, en Python, la même que `web/companion/show.js`
+- **Logique** : `es8stage.stage`, en Python, la même que `web/companion/show.js`
   (déplacements, switches, groupes, crans, secours, messages de pas). Les deux
   sont vérifiées sur les mêmes cas (tests), pour qu'elles ne divergent pas.
 - **MIDI** : `mido` + `python-rtmidi` (ALSA). Port choisi par son nom
   (« WIDI » par défaut), rouvert tout seul s'il disparaît (Bluetooth).
-- **Show** : un fichier sur le Pi (`~/.local/share/es8ctl/show.json`),
-  remplacé par un envoi depuis le Designer ou `es8ctl stage push` ; la
+- **Show** : un fichier sur le Pi (`~/.local/share/es8stage/show.json`),
+  remplacé par un envoi depuis le Designer ou la page de l'hôte ; la
   position et l'état sont gardés à côté.
-- **HTTP** (`es8ctl web --stage --midi WIDI [--ble <adresse>]`), bibliothèque
+- **HTTP** (`es8stage serve --stage --midi WIDI [--ble <adresse>]`, `es8stage/server/http.py`), bibliothèque
   standard seulement :
   - `GET /stage/state` : l'état (show, pos, states, backup, traffic, move,
     midi) ; `GET /stage/events` : le même, poussé à chaque changement
@@ -69,7 +91,7 @@ iPad ne sont que des écrans.
 
 ### Bibliothèque de sets
 
-Sur le Pi (`~/.local/share/es8ctl/library/`) :
+Sur le Pi (`~/.local/share/es8stage/library/`) :
 
 - **Projets** (`*.es8project.json`) : le Designer ouvre et enregistre sur le
   Pi au lieu du stockage du navigateur ; le même projet sur Mac et iPad.
@@ -78,7 +100,7 @@ Sur le Pi (`~/.local/share/es8ctl/library/`) :
 - **Sauvegardes de l'ES-8** (dumps `.syx`), avec « restaurer ».
 - Actions : choisir le show joué, ouvrir, dupliquer, renommer, supprimer,
   importer, télécharger (copie sur le Mac).
-- HTTP (`es8ctl/library.py`, servi par tout `es8ctl web`, pas seulement
+- HTTP (`es8stage/server/library.py`, servi par tout `es8stage serve`, pas seulement
   `--stage`) : `GET /library/` (la liste et le show joué) ;
   `GET|PUT|DELETE /library/<projects|shows|backups>/<nom>` (`?download` :
   en pièce jointe ; `PUT …?new` : refusé si le nom existe) ;
@@ -115,7 +137,7 @@ proprement le Pi, état du WIDI et reconnexion, lecture seule, mise à jour du
 programme). Protégée par un mot de passe (elle peut couper le réseau ou
 effacer un set) ; la Companion reste ouverte sans mot de passe.
 
-Fait (`web/host/`, `es8ctl/host_auth.py`) :
+Fait (`web/host/`, `es8stage/server/host_auth.py`) :
 
 - **Mot de passe** : tant qu'il n'y en a pas, la page est ouverte et propose
   d'en choisir un. Gardé haché (PBKDF2) dans `host-auth.json` (600) ;
@@ -145,8 +167,8 @@ Fait (`web/host/`, `es8ctl/host_auth.py`) :
 
 ## Ordre de travail
 
-Fait le 2026-10-20 : BLE MIDI du Pi (WIDI appairé), `es8core.stage` et sa
-parité avec `show.js`, `es8ctl web --stage`, mode écran de la Companion,
+Fait le 2026-10-20 : BLE MIDI du Pi (WIDI appairé), `es8stage.stage` et sa
+parité avec `show.js`, `es8stage serve --stage`, mode écran de la Companion,
 service systemd, point d'accès.
 
 1. ✅ **Pont MIDI** + choix automatique dans `engine.js` + verrou de scène
