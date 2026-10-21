@@ -6,6 +6,7 @@
 
 import { html, render, useState, useEffect, useRef } from "../shared/vendor/preact-htm.module.js";
 import * as S from "./show.js";
+import { mountNav, setNavHidden, es8Status } from "../stage-shared/nav.js";
 
 const STORE_KEY = "es8companion";
 const DEFAULT_PREFS = { keyboard: true, wake: true, view: "setlist", panel: true }; // view : setlist | switches
@@ -170,6 +171,10 @@ function App() {
     else if (v === "setlists" || v === "menu") setScreen(v);
   }, []);
 
+  // Le bandeau des applis : sur le menu et l'attente, pas sur les écrans de scène.
+  const onStage = !!(snap && snap.show) && screen !== "menu";
+  useEffect(() => setNavHidden(onStage), [onStage]);
+
   if (!snap) return html`<${NoHost} link=${link} />`;
   const ctx = {
     snap, show: snap.show, pos: snap.pos, states: snap.states || {}, backup: !!snap.backup,
@@ -204,13 +209,7 @@ function Banners({ snap, link, setScreen }) {
 /** Puce de l'ES-8 dans la barre : branché, vérifié ; toucher ouvre le menu. */
 function ES8Chip({ snap, setScreen }) {
   const m = snap.midi || {};
-  const c = (snap.check || {}).state;
-  const [dot, text] = !m.connected ? ["bad", "ES-8 not connected"]
-    : snap.edit ? ["warn", "ES-8 · edit mode"]
-    : c === "ok" ? ["ok", "ES-8 · checked"]
-    : c === "mismatch" ? ["warn", "ES-8 · differs"]
-    : c === "checking" ? ["ok", "ES-8 · checking…"]
-    : ["ok", "ES-8"];
+  const [dot, text] = es8Status(snap);
   return html`<button class="chip es8-chip" onClick=${() => setScreen("menu")} title=${m.port || ""}>
     <span class=${`dot ${dot}`}></span><span class="chip-text">${text}</span></button>`;
 }
@@ -570,7 +569,6 @@ function Menu(ctx) {
         ${show ? html`<button class="ghost" onClick=${() => { setLearning(null); setScreen("stage"); }}><${Icon} name="left" size=${18} /> Stage</button>` : null}
         <h1 class="page-title">ES8 Companion</h1>
         <span class="spacer"></span>
-        <${ES8Chip} snap=${snap} setScreen=${() => {}} />
       </header>
       <div class="page-body settings">
         <${Banners} snap=${snap} link=${link} />
@@ -582,16 +580,6 @@ function Menu(ctx) {
           <${Shows} snap=${snap} />
         </section>
         <${ES8Box} snap=${snap} />
-        <section class="box">
-          <h2 class="eyebrow">Prepare</h2>
-          <div class="row-wrap">
-            <a class="primary" href="../designer/">ES8 Designer</a>
-            <a class="ghost" href="../control/">ES8 Control</a>
-            <a class="ghost" href="../host/">Stage host</a>
-          </div>
-          <p class="muted small">ES8 Designer: pedalboard, rigs, songs and setlists, then “Send to stage”. ES8 Control: classic patch editing.
-            Stage host: ES-8 backups, the library, the Pi itself.</p>
-        </section>
         <${KeysBox} ...${ctx} />
         <section class="box">
           <h2 class="eyebrow">This screen</h2>
@@ -622,3 +610,4 @@ function NoHost({ link }) {
 }
 
 render(html`<${App} />`, document.getElementById("root"));
+mountNav("companion");

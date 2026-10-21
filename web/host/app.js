@@ -1,6 +1,7 @@
 // ES8 Stage Host — la page de l'hôte de scène (docs/stage-host.md) : l'ES-8 et le WIDI, la bibliothèque
 // (projets, shows, sauvegardes de l'ES-8), le système du Pi. Protégée par un mot de passe.
 import { html, render, useState, useEffect } from "../shared/vendor/preact-htm.module.js";
+import { mountNav } from "../stage-shared/nav.js";
 
 const API = "api/";
 const LIB = "../library/";
@@ -68,9 +69,6 @@ function App() {
       <header class="bar">
         <div class="title"><h1>${st.system.hostname}</h1><p class="eyebrow">ES8 stage host</p></div>
         <nav class="row-wrap">
-          <a class="ghost" href="../companion/">Companion</a>
-          <a class="ghost" href="../designer/">Designer</a>
-          <a class="ghost" href="../control/">Control</a>
           ${st.auth.set ? html`<button class="ghost" onClick=${() => run(() => req(API + "logout", { method: "POST" }))}>Log out</button>` : null}
         </nav>
       </header>
@@ -241,3 +239,4 @@ function System({ st, run, setGone }) {
 }
 
 render(html`<${App} />`, document.getElementById("root"));
+mountNav("host");

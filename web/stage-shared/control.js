@@ -1,10 +1,10 @@
 // ES8 Control servi par ES Eight Stage : le serveur ajoute ce module avant celui de l'appli.
 // Il branche le moteur sur l'hôte de scène (bridge.js) et, si la page passe par lui, affiche le
-// mode édition dans un petit encart (écrire sur l'ES-8 demande de mettre la Companion en pause), avec
-// les liens vers les autres applis de l'hôte.
+// mode édition dans un petit encart (écrire sur l'ES-8 demande de mettre la Companion en pause) ; il pose
+// le bandeau commun des applis de l'hôte.
 import { store } from "../shared/engine.js";
 import { setEditMode } from "./bridge.js";
-import { otherApps } from "./nav.js";
+import { mountNav } from "./nav.js";
 
 function render(state) {
   const host = state.stageHost;
@@ -15,11 +15,9 @@ function render(state) {
     box.id = "stage-host-box";
     box.style.cssText = "position:fixed;left:12px;bottom:12px;z-index:50;display:flex;gap:8px;align-items:center;"
       + "padding:8px 12px;border-radius:10px;font:13px system-ui,sans-serif;color:#eee;background:#1b1c20e6;"
-      + "border:1px solid #3a3d44;box-shadow:0 6px 18px #0006;flex-wrap:wrap;max-width:calc(100vw - 24px)";
-    const links = otherApps("control").map((a) => `<a href="${a.href}" style="color:#9ec3ff;text-decoration:none">${a.label}</a>`).join(" · ");
+      + "border:1px solid #3a3d44;box-shadow:0 6px 18px #0006";
     box.innerHTML = `<label style="display:flex;gap:8px;align-items:center;cursor:pointer">
-      <input type="checkbox"> <span><b>Stage host</b> · Edit mode <span class="sh-note" style="color:#9aa0a8"></span></span></label>
-      <span style="padding-left:8px;border-left:1px solid #3a3d44">${links}</span>`;
+      <input type="checkbox"> <span><b>Stage host</b> · Edit mode <span class="sh-note" style="color:#9aa0a8"></span></span></label>`;
     box.querySelector("input").addEventListener("change", (e) => setEditMode(e.target.checked));
     document.body.append(box);
   }
@@ -29,3 +27,4 @@ function render(state) {
 }
 
 store.subscribe(render);
+mountNav("control");

@@ -245,8 +245,12 @@ Dans le Designer, une surface donne un rôle à chaque switch. Deux familles :
   tient sans doute) ; ES-8 qui ne correspond pas au show.
 - **Menu** : le show joué et ceux de la bibliothèque (Play) ; l'ES-8
   (connexion, vérification de la setlist, « Check now », mode édition) ;
-  Prepare (ES8 Designer, ES8 Control, page de l'hôte) ; touches des pédales
-  tourne-page ; écran allumé.
+  touches des pédales tourne-page ; écran allumé.
+- **Bandeau commun** (`web/stage-shared/nav.js`) : la même barre en haut de
+  chaque page servie par l'hôte (Companion · Designer · Control · Stage host,
+  l'appli en cours en surbrillance, l'état de l'ES-8 à droite, qui ouvre le
+  menu de la Companion). Absent quand la page n'est pas servie par un hôte de
+  scène ; caché sur les écrans de scène de la Companion.
 
 ## Technique
 

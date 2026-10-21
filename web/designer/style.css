@@ -94,12 +94,6 @@ input[type="number"] { width: 64px; font-family: var(--font-mono); }
 .tabs button[aria-selected="true"] { background: var(--panel); color: var(--ink); box-shadow: 0 1px 2px var(--shadow); }
 .busy { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 13px; }
 .busy progress { accent-color: var(--accent); width: 140px; }
-.apps { display: flex; gap: 2px; }
-.apps a {
-  padding: 7px 10px; border-radius: 5px; color: var(--muted); text-decoration: none; white-space: nowrap;
-  font: 600 13px/1 var(--font-display); letter-spacing: 0.05em; text-transform: uppercase;
-}
-.apps a:hover { color: var(--ink); background: var(--raised); }
 .menu { position: relative; }
 .pill {
   display: inline-flex; align-items: center; gap: 8px; padding: 6px 12px; border-radius: 999px; cursor: pointer;

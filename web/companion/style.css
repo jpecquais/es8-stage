@@ -43,7 +43,7 @@ code { font-family: var(--font-mono); font-size: 0.9em; }
 .grow { flex: 1; min-width: 0; }
 .spacer { flex: 1; }
 
-.app { min-height: 100dvh; display: flex; flex-direction: column; }
+.app { min-height: calc(100dvh - var(--stage-nav-h, 0px)); display: flex; flex-direction: column; }
 .stage-app { height: 100dvh; overflow: hidden; }
 
 /* ---------------------------------------------------------------- barre */
