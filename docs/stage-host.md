@@ -60,14 +60,14 @@ ES-8 ──BLE MIDI (WIDI)──▶ Pi : es8stage serve ──BLE MIDI──▶ 
 - **HTTP** (`es8stage serve --stage --midi WIDI [--ble <adresse>]`, `es8stage/server/http.py`), bibliothèque
   standard seulement :
   - `GET /stage/state` : l'état (show, pos, states, backup, traffic, move,
-    midi) ; `GET /stage/events` : le même, poussé à chaque changement
+    midi, edit, job, check) ; `GET /stage/events` : le même, poussé à chaque changement
     (Server-Sent Events) ;
   - `POST /stage/act` : `{"type": "act", action}`, `{"type": "press", key,
-    down}`, `{"type": "goto", setlist, step}`, `{"type": "resend"}` ;
+    down}`, `{"type": "goto", setlist, step}`, `{"type": "resend"}`,
+    `{"type": "edit", on}`, `{"type": "check"}` ;
   - `POST /stage/show.json` : nouveau show, rechargé aussitôt.
-- **La Companion web** : si `/stage/state` répond, elle devient l'écran de
-  l'hôte (aucun MIDI dans le navigateur, d'où le fonctionnement en HTTP
-  simple) ; sinon elle fonctionne comme avant (Web MIDI du navigateur).
+- **La Companion web** est l'écran de l'hôte (aucun MIDI dans le navigateur,
+  d'où le fonctionnement en HTTP simple) ; sans hôte de scène, elle le dit.
 
 ## Le Pi, centre de tout (décidé le 2026-10-20)
 
@@ -86,8 +86,12 @@ iPad ne sont que des écrans.
   Même port que la Companion ; la Companion ignore le SysEx.
 - Choix automatique : page servie par un hôte de scène → MIDI du Pi.
 - **Verrou de scène** : écrire sur l'ES-8 depuis le Designer ou Control
-  demande que la Companion soit en pause (bouton « Edit mode » sur l'hôte) ;
-  les lectures restent permises.
+  demande que la Companion soit en pause (« Edit mode ») ; les lectures
+  restent permises. Le mode édition se voit sur la Companion (bandeau,
+  « Resume the show ») et **se coupe seul après 10 minutes** sans message
+  d'un éditeur vers l'ES-8 (`EDIT_IDLE_S`) : un mode oublié ne laisse pas les
+  switches sans effet pendant le concert. Designer et Control suivent l'état
+  de l'hôte en direct (`/stage/events`).
 
 ### Bibliothèque de sets
 
@@ -155,6 +159,35 @@ Fait (`web/host/`, `es8stage/server/host_auth.py`) :
   que les pages qui diffèrent, puis les relit et renvoie (comme le Designer).
 - Pas sur le site statique (`build-web` l'omet).
 
+## Façade, préparation, vérification (2026-10-21)
+
+- **La Companion est la façade** : `/` l'ouvre ; son menu mène aux shows de
+  la bibliothèque, à l'état de l'ES-8, au mode édition, au Designer, à
+  Control et à la page de l'hôte (sauvegardes, système, mot de passe).
+- **« Send to stage »** (Designer, sur un hôte) : un seul geste. Relit sur
+  l'ES-8 le système et les patchs des rigs du projet, compile, écrit ce qui
+  diffère en mode édition (pages relues jusqu'à vérification), range le show
+  dans la bibliothèque sous le nom du projet et le joue, puis coupe le mode
+  édition. Si une page n'est pas vérifiée, le show n'est pas changé.
+- **Vérification de la setlist** (`StageServer.check`, lecture seule) : l'hôte
+  lit les 8 pages système (quelques secondes) et compare, pour chaque
+  setlist jouable, l'empreinte de la `pc_map` de sa banque MIDI avec
+  `pc_map` du show, et le canal de réception de l'ES-8 avec celui du show.
+  Lancée seule quand l'ES-8 se branche, quand un autre show est joué et à la
+  fin du mode édition (jamais pendant) ; « Check now » dans le menu. Le
+  résultat (`check` de l'état : `ok`, `mismatch`, `checking`, `error`,
+  `unknown`) vaut pour le show et le canal vérifiés. Vérifié sur l'ES-8 le
+  2026-10-21 (PULSE, canal 15).
+- **Bluetooth** : c'est le lien de scène, il doit marcher seul. Un
+  adaptateur BLE MIDI ne parle qu'à un appareil à la fois : constaté le
+  2026-10-21, dès que le Pi lâche le WIDI (redémarrage du Bluetooth ou du
+  Pi), le Mac qui l'a appairé le reprend, et le WIDI ne s'annonce plus pour
+  le Pi. D'où l'ancien « il faut rallumer le WIDI après un redémarrage ».
+  L'hôte balaie donc d'abord (6 s) et ne tente la connexion que si
+  l'adaptateur s'annonce ; sinon l'état le dit (`midi.ble_seen = false`) et
+  les écrans conseillent de le libérer sur l'autre appareil. **Un Mac qui
+  passe par le Pi doit oublier le WIDI** dans ses réglages Bluetooth.
+
 ## Le Pi comme une pédale
 
 1. Démarrage automatique du service ; reconnexion du WIDI.
@@ -179,5 +212,8 @@ service systemd, point d'accès.
    « restaurer » viendra avec la page de l'hôte).
 3. ✅ **Page de l'hôte** : bibliothèque, système, sauvegarde et restauration
    de l'ES-8, mot de passe (2026-10-20).
-4. **Réseau** : bascule réseau connu / point d'accès, réglages et garde-fou.
-5. Lecture seule, mise à jour du programme depuis la page.
+4. ✅ **Façade** (2026-10-21) : Companion à la racine, Send to stage,
+   vérification de la setlist, mode édition visible et limité, Bluetooth
+   tenu ailleurs signalé.
+5. **Réseau** : bascule réseau connu / point d'accès, réglages et garde-fou.
+6. Lecture seule, mise à jour du programme depuis la page.

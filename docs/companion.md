@@ -1,15 +1,18 @@
-# ES8 Companion : le cerveau de scène
+# ES8 Companion : la façade de scène
 
-Une app web qui tourne pendant le concert, sur un Raspberry Pi (ou une
-tablette, un ordinateur) relié à l'ES-8. Elle avance dans la setlist,
-traduit les appuis sur les switches de l'ES-8 en messages pour les machines
-(Ableton, Valeton, Quimera…), et affiche où on en est et l'état de chaque
-switch.
+Pendant le concert, l'hôte de scène (`es8stage serve --stage`, le Raspberry
+Pi) avance dans la setlist et traduit les appuis sur les switches de l'ES-8
+en messages pour les machines (Ableton, Valeton, Quimera…). ES8 Companion
+est son écran, sur une tablette ou un téléphone : où on en est, l'état de
+chaque switch, et la porte vers tout le reste (shows, état de l'ES-8,
+préparation). Hôte de scène : `docs/stage-host.md`.
 
-Statut : v1 (navigation) codée et vérifiée sur l'ES-8 le 2026-10-19 ;
-v2 (la Companion tient la logique des switches) décidée et en cours le
-2026-10-20. Modèle : `docs/rig-model.md`. Essais matériel :
-`docs/hardware-tests.md`.
+Statut : v1 (navigation) vérifiée sur l'ES-8 le 2026-10-19 ; v2 (logique
+des switches) le 2026-10-20. **Depuis le 2026-10-21, la Companion n'est plus
+que l'écran de l'hôte** : plus de MIDI dans le navigateur, la logique de jeu
+n'existe plus qu'en Python (`es8stage.stage`). Pour répéter sans Pi :
+`es8stage serve --stage` sur l'ordinateur. Modèle : `docs/rig-model.md`.
+Essais matériel : `docs/hardware-tests.md`.
 
 ## Partage des rôles (décidé le 2026-10-20)
 
@@ -138,9 +141,10 @@ Autonome : pas de chemin ni de référence à résoudre.
 
 ## Entrée
 
-Trois sources, actives ensemble : un port MIDI d'entrée (choisi par
-l'utilisateur, indépendant de la sortie), le clavier (pédales Bluetooth
-tourne-page, qui se présentent comme un clavier), l'écran.
+Trois sources : les switches de l'ES-8 (reçus par l'hôte, voir plus bas),
+l'écran, et le clavier de l'écran (pédales Bluetooth tourne-page, qui se
+présentent comme un clavier). L'écran et le clavier envoient leurs gestes à
+l'hôte (`POST /stage/act`).
 
 **Actions** :
 
@@ -156,34 +160,21 @@ tourne-page, qui se présentent comme un clavier), l'écran.
 L'écran ajoute « aller à » : un morceau dans la liste (son premier pas),
 ou un pas dans la vue Setlists.
 
-**Table d'entrée** : une liste de `{action, type, channel, number}` avec
-`type` = `cc` | `note` | `key` (pour `key`, `number` est remplacé par le nom
-de la touche). Règles :
-
-- Déclenche à l'appui : CC de valeur > 0, note-on de vélocité > 0, touche
-  enfoncée. Le relâchement (CC 0, note-off) est ignoré, donc un switch en
-  mode toggle (127 puis 0) ne déclenche qu'un appui sur deux : il faut un
-  switch momentané.
-- Un message n'a qu'une action ; l'apprendre pour une autre le retire de la
-  première.
-- Apprentissage : le premier message reçu (hors PC, horloge, active sensing,
-  SysEx) devient le message de l'action.
-- Les PC reçus ne sont jamais des entrées : ce sont ceux que la Companion
-  envoie (écho par un ES-8 en Thru, ou boucle).
-- Anti-rebond : un même message reçu deux fois en moins de 120 ms ne
-  compte qu'une fois.
-- La table est stockée sur l'appareil. Le préréglage du show la remplit au
-  premier chargement ; « Restore preset » y revient.
-- Un CC de l'ES-8 (canal et numéro de `controls`) passe avant la table : la
-  Companion cherche le rôle de ce switch dans le rig en cours.
+**Touches** : une liste de `{action, type: "key", key}`, gardée sur chaque
+écran ; par défaut → et Page Down pour `next`, ← et Page Up pour `prev`.
+Déclenche à l'appui ; une touche n'a qu'une action (l'apprendre pour une
+autre la retire de la première). L'ancien préréglage d'entrée MIDI du show
+(`input_preset`) n'est plus lu.
 
 ## Sortie
 
-- PC *i* sur le canal de réception de l'ES-8 (`es8.rx_channel`, modifiable
-  dans les réglages), précédé de Bank Select CC0 = banque MIDI de la
-  setlist (vérifié ; CC32 ignoré). Le CC0 est renvoyé à chaque pas.
+Par l'hôte (`es8stage.stage`) :
+
+- PC *i* sur le canal de réception de l'ES-8 (`es8.rx_channel`), précédé de
+  Bank Select CC0 = banque MIDI de la setlist (vérifié ; CC32 ignoré). Le
+  CC0 est renvoyé à chaque pas.
 - Aux bouts de la setlist, `next` et `prev` ne font rien.
-- Après un rechargement, la position est restaurée **sans rien envoyer**.
+- Après un redémarrage, la position est restaurée **sans rien envoyer**.
   Toucher « Now » renvoie le PC du pas en cours.
 - Gestes : le CC du paramètre sur le canal de son appareil, par la même
   sortie (l'ES-8 le recopie en Thru).
@@ -233,7 +224,7 @@ Dans le Designer, une surface donne un rôle à chaque switch. Deux familles :
 
 ## Écrans
 
-Voir la maquette.
+`/` (la racine de l'hôte) ouvre la Companion.
 
 - **Stage** : morceau (le titre ouvre la liste des morceaux), déroulé, cartes
   Previous / Now / Next, gros boutons. Panneau : morceau suivant, **switches
@@ -246,27 +237,32 @@ Voir la maquette.
   liste), son en cours, suivant. Toucher un pavé = l'appui du pied
   (momentané : tant qu'on le tient).
 - **Setlists** : onglets par setlist, morceaux et pas (toucher = y aller).
-- **Settings** : sortie (port, canal), entrée (port, clavier), table
-  d'actions avec apprentissage, écran.
+- **Barre** : puce de l'ES-8 (non connecté, mode édition, vérifié, diffère),
+  secours, menu.
+- **Bandeaux** sous la barre : hôte injoignable ; **mode édition** (les
+  switches sont en pause, bouton « Resume the show ») ; ES-8 non connecté
+  (et, si l'adaptateur Bluetooth ne s'annonce pas, qu'un autre appareil le
+  tient sans doute) ; ES-8 qui ne correspond pas au show.
+- **Menu** : le show joué et ceux de la bibliothèque (Play) ; l'ES-8
+  (connexion, vérification de la setlist, « Check now », mode édition) ;
+  Prepare (ES8 Designer, ES8 Control, page de l'hôte) ; touches des pédales
+  tourne-page ; écran allumé.
 
 ## Technique
 
-- `web/companion/`, site statique. Pas de Pyodide. Web MIDI sans SysEx.
-  Transport isolé (`ports()`, `use(in, out)`, `send`, `onMessage`,
-  `onPortsChange`).
-- Show courant du serveur : `GET/POST /stage/show.json` de `es8stage serve`
-  (fichier `~/.local/share/es8stage/show.json`) ; la Companion le prend à
-  l'ouverture et le suit, le Designer (Show) et « Load a show » l'y déposent.
-- PWA (hors ligne), Screen Wake Lock, `localStorage` (show, position,
-  ports, table d'entrée, préférences).
-- **Hôte de scène : un Raspberry Pi** (3B+ ou Zero 2 W) avec un écran ou une
-  tablette en affichage. À traiter comme une pédale : démarrage
-  automatique, système en lecture seule (coupures de courant), MIDI filaire
-  par une interface USB-MIDI DIN (pas de Bluetooth sur scène). À spécifier
-  à part (`docs/stage-host.md`, à écrire).
-- Autres hôtes possibles pour répéter : Chrome sur ordinateur ou Android ;
-  iOS par un navigateur Web MIDI. `es8stage serve --lan` sert sur le réseau
-  local.
+- `web/companion/`, Preact sans compilation. Pas de Pyodide, pas de MIDI.
+- État de l'hôte : `GET /stage/state` à l'ouverture, puis `GET /stage/events`
+  (Server-Sent Events, reconnexion automatique). Sans hôte de scène, la page
+  le dit et réessaie.
+- Écran allumé : Screen Wake Lock là où il existe (https, localhost) ; sinon
+  (l'iPad sur `http://pedalbrain.local`), une vidéo de 4 s sans image ni son
+  jouée en boucle (`keepawake.mp4`), lancée au premier toucher. Le menu
+  conseille aussi le réglage de verrouillage automatique de l'iPad.
+- `localStorage` : préférences et touches de cet écran seulement.
+- Méta « web app » : ajoutée à l'écran d'accueil de l'iPad, la Companion
+  s'ouvre en plein écran.
+- **Bluetooth sur scène : oui.** Le WIDI (BLE MIDI) est le lien normal avec
+  l'ES-8 ; une interface USB-MIDI filaire reste possible (`--midi`).
 
 ## Côté modèle (`es8core`)
 
@@ -282,9 +278,8 @@ Fait le 2026-10-19 :
    doivent être des noms d'action (refus sinon).
 4. Setlist : `name` facultatif sur un morceau écrit sur place.
 
-5. ES8 Designer : bouton « Show » (pont web `show_export`). Il télécharge
-   le show et le dépose pour la Companion ouverte dans le même navigateur
-   (clé `es8companion/incoming`), qui l'ouvre seule.
+5. ES8 Designer : « Send to stage » sur un hôte de scène (voir
+   `docs/stage-host.md`) ; ailleurs, « Show » télécharge le show.
 `es8.rx_channel` vaut 1 dans l'export (le projet ne connaît pas le canal de
 l'ES-8) ; la Companion le laisse changer.
 

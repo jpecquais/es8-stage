@@ -6,14 +6,19 @@ System, built on [es8](https://github.com/jpecquais/es8) (the ES-8 engine,
 
 - **ES8 Designer** describes your pedalboard, rigs of N snapshots (loops,
   programs and parameters of every MIDI device), footswitch roles and
-  setlists, and writes the ES-8 patches and program-change map for you.
-- **ES8 Companion** plays the setlist on stage: it holds the footswitch logic
-  (toggles, momentary switches, exclusive groups, selector steps, backup
-  rigs) and shows what is on.
-- **The stage host** runs everything on a Raspberry Pi next to the ES-8: it
-  plays the show on its own, owns the MIDI link, keeps a library of projects,
-  shows and ES-8 backups, and serves every app to the tablet, phone or
-  computer on its network (host page at `/host/`, password-protected).
+  setlists, and writes the ES-8 patches and program-change map for you; on a
+  stage host, "Send to stage" writes, verifies and plays the show in one go.
+- **ES8 Companion** is the stage screen and the front door: where you are in
+  the setlist, what each footswitch does and whether it is on, the shows of
+  the library, the state of the ES-8 (checked against the show, edit mode),
+  and the way to the other apps.
+- **The stage host** runs everything on a Raspberry Pi next to the ES-8 (over
+  Bluetooth MIDI or a MIDI interface): it plays the show on its own and holds
+  the footswitch logic (toggles, momentary switches, exclusive groups,
+  selector steps, backup rigs), owns the MIDI link, checks the ES-8 against
+  the show, keeps a library of projects, shows and ES-8 backups, and serves
+  every app to the tablet, phone or computer on its network (ES8 Companion at
+  `/`, host page at `/host/`).
 - **es8stage**, the command line: `es8stage rig compile | status | show`
   turn rigs into changes for `es8ctl apply`, and `es8stage serve` runs the
   apps.
@@ -27,6 +32,7 @@ git clone --recurse-submodules https://github.com/jpecquais/es8-stage
 cd es8-stage
 uv sync
 uv run es8stage serve            # http://localhost:8765/designer/
+uv run es8stage serve --stage    # this computer is the stage host (ES-8 on a "WIDI" MIDI port)
 ```
 
 On a Raspberry Pi as a stage host (BLE MIDI adapter or USB-MIDI interface to
