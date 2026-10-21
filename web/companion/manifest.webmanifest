@@ -1,7 +1,7 @@
 {
   "name": "ES8 Companion",
   "short_name": "Companion",
-  "description": "Plays a setlist on a BOSS ES-8 during the show.",
+  "description": "The stage screen of ES Eight Stage: plays the setlist on a BOSS ES-8.",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",

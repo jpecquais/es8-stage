@@ -1,47 +1,23 @@
-// ES8 Companion — l'app de scène (Preact + htm, sans compilation). Textes en
-// anglais. Spéc : docs/companion.md. Elle joue un show exporté par la lib :
-// une action (contrôleur MIDI, clavier, écran) déplace la position et envoie
-// à l'ES-8 le Program Change du pas. Pas de Pyodide, pas de SysEx.
+// ES8 Companion — la façade de ES Eight Stage (Preact + htm, sans compilation). Textes en anglais.
+// Spéc : docs/companion.md, docs/stage-host.md. C'est l'écran de l'hôte de scène (`es8stage serve
+// --stage`, le Pi) : l'hôte joue le show et parle MIDI à l'ES-8 ; cette page affiche l'état qu'il pousse
+// (Server-Sent Events) et lui envoie les gestes (écran, pédales tourne-page du clavier). Le menu mène aux
+// shows de la bibliothèque, à l'état de l'ES-8 (vérification, mode édition) et aux autres applis.
 
 import { html, render, useState, useEffect, useRef } from "../shared/vendor/preact-htm.module.js";
 import * as S from "./show.js";
-import { openWebMidi } from "./midi.js";
 
 const STORE_KEY = "es8companion";
-const INBOX = "es8companion/incoming"; // déposé par ES8 Designer (« Show »)
-// Show courant du serveur (es8stage serve, le Pi) : pris à l'ouverture et suivi ; un show chargé ici y est déposé.
-// Sans serveur (site statique), ces requêtes échouent en silence et l'app marche comme avant.
-const SERVER_SHOW = "../stage/show.json";
-const SERVER_POLL_MS = 5000;
-// outName / inName : null = jamais choisi (choix automatique), "" = aucun port.
-const DEFAULT_PREFS = {
-  outName: null, inName: null, channel: 0, keyboard: true, wake: true,
-  view: "setlist", panel: true, bindingsCustom: false, // view : setlist | switches (la vue de scène)
-};
+const DEFAULT_PREFS = { keyboard: true, wake: true, view: "setlist", panel: true }; // view : setlist | switches
 const NUMS = ["NUM1", "NUM2", "NUM3", "NUM4", "NUM5", "NUM6", "NUM7", "NUM8"];
 const ROLE_TAG = { loop: (sw) => sw.target || "LOOP", param: (sw) => (sw.mode === "momentary" ? "MOM" : "CC"), tap: () => "TAP", es8: () => "ES-8", companion: (sw) => sw.target.replace("_", " ").toUpperCase() };
-
-let transport = null;
+const RETRY_MS = 3000;
 
 function loadStore() {
   try { return JSON.parse(localStorage.getItem(STORE_KEY) || "{}"); } catch { return {}; }
 }
 function saveStore(data) {
   try { localStorage.setItem(STORE_KEY, JSON.stringify(data)); } catch { /* stockage indisponible : l'app marche sans */ }
-}
-
-/** Ports utilisés : ceux choisis, sinon la première sortie et l'entrée du même nom. */
-// Ports logiciels que le système crée tout seul (session réseau macOS, IAC, synthé Windows, Midi Through
-// Linux) : jamais un appareil, donc écartés du choix automatique.
-const VIRTUAL_PORT = /r[ée]seau|network|session|\biac\b|gestionnaire iac|microsoft gs|wavetable|midi through/i;
-const firstReal = (ports) => ports.find((p) => !VIRTUAL_PORT.test(p.name)) || ports[0];
-
-function pickPorts(prefs, inputs, outputs) {
-  const out = prefs.outName === null ? firstReal(outputs) : outputs.find((p) => p.name === prefs.outName);
-  const inp = prefs.inName === null
-    ? inputs.find((p) => out && p.name === out.name) || firstReal(inputs)
-    : inputs.find((p) => p.name === prefs.inName);
-  return { out: out || null, inp: inp || null };
 }
 
 const ICONS = {
@@ -52,172 +28,121 @@ const Icon = ({ name, size = 20 }) => html`
   <svg width=${size} height=${size} viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"
     stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d=${ICONS[name]} /></svg>`;
 
+/** Geste ou commande pour l'hôte : {type: act|press|goto|resend|edit|check, …}. */
+const post = (cmd) => fetch("../stage/act", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(cmd) })
+  .catch(() => {});
+
+// ---------------------------------------------------------------- écran allumé
+// Wake Lock n'existe que sur une page sécurisée (https, localhost) : sur l'adresse http du Pi, l'iPad ne
+// l'a pas. On joue alors en boucle une courte vidéo sans image ni son, ce qui retient la mise en veille
+// (lancée au premier toucher : iOS veut un geste). Rend le moyen employé : "lock" | "video" | "".
+function useKeepAwake(on) {
+  const [how, setHow] = useState("");
+  useEffect(() => {
+    if (!on) { setHow(""); return undefined; }
+    let stopped = false;
+    if ("wakeLock" in navigator) {
+      let lock = null;
+      const acquire = async () => {
+        try { lock = await navigator.wakeLock.request("screen"); setHow("lock"); } catch { setHow(""); }
+      };
+      const onVisible = () => { if (document.visibilityState === "visible" && !stopped) acquire(); };
+      acquire();
+      document.addEventListener("visibilitychange", onVisible);
+      return () => { stopped = true; document.removeEventListener("visibilitychange", onVisible); if (lock) lock.release().catch(() => {}); };
+    }
+    const video = document.createElement("video");
+    video.src = "keepawake.mp4";
+    video.loop = true;
+    video.playsInline = true;
+    video.setAttribute("playsinline", "");
+    video.setAttribute("title", "Keep the screen awake");
+    video.style.cssText = "position:fixed;left:0;bottom:0;width:1px;height:1px;opacity:0.01;pointer-events:none";
+    document.body.append(video);
+    const play = () => {
+      if (stopped || !video.paused) return;
+      video.play().then(() => setHow("video")).catch(() => setHow(""));
+    };
+    const onVisible = () => { if (document.visibilityState === "visible") play(); };
+    play();
+    window.addEventListener("pointerdown", play, true);
+    window.addEventListener("keydown", play, true);
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      stopped = true;
+      window.removeEventListener("pointerdown", play, true);
+      window.removeEventListener("keydown", play, true);
+      document.removeEventListener("visibilitychange", onVisible);
+      video.pause();
+      video.remove();
+    };
+  }, [on]);
+  return how;
+}
+
 // ---------------------------------------------------------------- app
 
 function App() {
   const boot = useRef(null);
-  if (boot.current === null) {
-    const saved = loadStore();
-    const show = saved.show && !S.checkShow(saved.show).length ? saved.show : null;
-    boot.current = { ...saved, show, pos: show ? S.validPosition(show, saved.pos) : null };
-  }
-  const [show, setShow] = useState(boot.current.show);
-  const [pos, setPos] = useState(boot.current.pos);
-  const [bindings, setBindings] = useState(boot.current.bindings || S.presetBindings(boot.current.show));
+  if (boot.current === null) boot.current = loadStore();
+  const [snap, setSnap] = useState(null); // état poussé par l'hôte : show, pos, states, backup, traffic, midi, edit, check…
+  const [link, setLink] = useState("connecting"); // connecting | ok | lost | none (serveur sans hôte de scène)
   const [prefs, setPrefs] = useState({ ...DEFAULT_PREFS, ...boot.current.prefs });
-  const [backup, setBackup] = useState(!!boot.current.backup);
-  const [states, setStates] = useState({}); // paramètres pilotés par les switches de l'ES-8, pour le pas en cours
+  const [keys, setKeys] = useState(boot.current.keys || S.DEFAULT_KEY_BINDINGS);
   const [move, setMove] = useState({ n: 0, dir: "" }); // dernier déplacement (animation de la vue Switches)
   const [screen, setScreen] = useState("stage");
   const [songsOpen, setSongsOpen] = useState(false);
   const [browse, setBrowse] = useState(null);
   const [learning, setLearning] = useState(null);
-  const [midi, setMidi] = useState({ status: "pending", inputs: [], outputs: [] });
-  const [traffic, setTraffic] = useState({ in: "", action: "", out: "" });
-  const [error, setError] = useState("");
-  const debounce = useRef(S.makeDebounce()).current;
-  // Mode « écran d'un hôte de scène » (docs/stage-host.md) : la page servie par un `es8stage serve --stage`
-  // ne touche pas au MIDI ; elle affiche l'état poussé par l'hôte et lui envoie les gestes.
-  const remote = useRef(false);
-  const [host, setHost] = useState(null); // {connected, port} du MIDI de l'hôte
-  const post = (cmd) => fetch("../stage/act", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(cmd) }).catch(() => {});
+  const awake = useKeepAwake(prefs.wake);
 
-  // Les callbacks MIDI et clavier sont posés une fois : ils lisent l'état ici.
+  // Le callback du clavier est posé une fois : il lit l'état ici.
   const live = useRef({});
-  live.current = { ...live.current, show, pos, bindings, prefs, learning, backup, states };
+  live.current = { keys, prefs, learning };
 
-  // À chaque pas, l'état repart de celui du snapshot (le patch vient d'envoyer ces valeurs).
-  // Avec un hôte de scène, c'est lui qui tient l'état.
-  useEffect(() => {
-    if (remote.current) return;
-    const next = show && pos ? S.startStates(show, pos) : {};
-    live.current.states = next;
-    setStates(next);
-  }, [show, pos && pos.setlist, pos && pos.step]);
-
-  useEffect(() => saveStore({ show, pos, bindings, prefs, backup }), [show, pos, bindings, prefs, backup]);
-
+  useEffect(() => saveStore({ prefs, keys }), [prefs, keys]);
   const setPref = (patch) => setPrefs((p) => ({ ...p, ...patch }));
-  const channel = () => live.current.prefs.channel || (live.current.show && live.current.show.es8 && live.current.show.es8.rx_channel) || 1;
 
-  function sendStep(p) {
-    const sl = live.current.show.setlists[p.setlist];
-    const play = S.played(sl.steps[p.step], p.step, live.current.backup);
-    const sent = !!transport && transport.send(S.stepMessages(channel(), sl.midi_bank, play.pc));
-    setTraffic((t) => ({ ...t, out: sent ? `${sl.midi_bank ? `bank ${sl.midi_bank} · ` : ""}PC ${play.pc}${play.backup ? " · backup" : ""}` : "not sent: no output" }));
-  }
-  function goTo(p, label) {
-    if (remote.current) { post({ type: "goto", setlist: p.setlist, step: p.step }); setSongsOpen(false); return; }
-    live.current.pos = p;
-    setPos(p);
-    setMove((m) => ({ n: m.n + 1, dir: "jump", at: Date.now() }));
-    sendStep(p);
-    setTraffic((t) => ({ ...t, in: "screen", action: label }));
-    setSongsOpen(false);
-  }
-  function act(action, source) {
-    if (remote.current) { post({ type: "act", action }); return; }
-    const L = live.current;
-    if (!L.show) return;
-    if (action === "backup") { // bascule : le pas en cours repart sur son secours, ou revient au son normal
-      live.current.backup = !L.backup;
-      setBackup(live.current.backup);
-      setTraffic((t) => ({ ...t, in: source, action: live.current.backup ? "Backup on" : "Backup off" }));
-      sendStep(L.pos);
-      return;
-    }
-    const p = S.move(L.show, L.pos, action);
-    setTraffic((t) => ({ ...t, in: source, action: S.actionLabel(action) + (p ? "" : " · end") }));
-    if (!p) { setMove((m) => ({ n: m.n + 1, dir: "end", at: Date.now() })); return; }
-    live.current.pos = p; // un second appui avant le rendu part de la nouvelle position
-    setPos(p);
-    setMove((m) => ({ n: m.n + 1, dir: action, at: Date.now() }));
-    sendStep(p);
-  }
-  /** Un switch de l'ES-8 : son rôle dans le rig en cours (action, ou paramètre envoyé à sa machine). */
-  function handleSwitch(sw) {
-    const L = live.current;
-    if (!L.show || !L.pos || L.learning) return;
-    if (sw.press && !debounce({ type: "cc", channel: 0, number: sw.key }, performance.now())) return;
-    const r = S.pressSwitch(L.show, L.pos, sw.key, sw.press, L.states || {});
-    if (!r) return;
-    if (r.action) { act(r.action, sw.key); return; }
-    live.current.states = r.states;
-    setStates(r.states);
-    const sent = !!transport && r.messages.every((m) => transport.send(m));
-    const more = r.messages.length > 1 ? ` (+${r.messages.length - 1} off)` : "";
-    setTraffic({ in: sw.key, action: `${r.label} ${r.on ? "on" : "off"}`,
-      out: sent ? `ch ${(r.message[0] & 0x0f) + 1} · CC${r.message[1]} = ${r.message[2]}${more}` : "not sent: no output" });
-  }
-
-  function handleInput(event, source) {
-    if (!event.press) return;
-    const L = live.current;
-    if (L.learning) {
-      const action = L.learning;
-      setBindings((b) => S.learn(b, action, event));
-      setPref({ bindingsCustom: true });
-      live.current.learning = null;
-      setLearning(null);
-      return;
-    }
-    if (!debounce(event, performance.now())) return;
-    const action = S.actionFor(L.bindings, event);
-    if (action) act(action, source);
-    else setTraffic((t) => ({ ...t, in: source, action: "not assigned" }));
-  }
-
+  // Lien avec l'hôte : l'état à l'ouverture, puis le flux. EventSource se reconnecte seul après une coupure.
   useEffect(() => {
-    let cancelled = false;
+    let stopped = false;
     let events = null;
-    const refresh = () => setMidi({ status: "ok", ...transport.ports() });
-    const openMidi = () => openWebMidi().then((t) => {
-      if (cancelled) return;
-      transport = t;
-      t.onMessage((data) => {
-        const sw = S.switchFromMidi(live.current.show, data);
-        if (sw) { handleSwitch(sw); return; }
-        const event = S.eventFromMidi(data);
-        if (event) handleInput(event, S.describeBinding(event));
-      });
-      t.onPortsChange(refresh);
-      refresh();
-    }).catch((err) => setMidi((m) => ({ ...m, status: err.message })));
-    // Un hôte de scène répond sur /stage/state : on devient son écran, sinon Web MIDI comme avant.
+    let timer = null;
     let lastMove = null;
-    const apply = (snap) => {
-      if (snap.show && (!live.current.show || live.current.show.exported !== snap.show.exported)) {
-        live.current.show = snap.show;
-        setShow(snap.show);
-      }
-      if (snap.pos) { live.current.pos = snap.pos; setPos(snap.pos); }
-      live.current.states = snap.states || {};
-      setStates(snap.states || {});
-      live.current.backup = !!snap.backup;
-      setBackup(!!snap.backup);
-      setTraffic(snap.traffic || { in: "", action: "", out: "" });
-      if (snap.move && lastMove !== null && snap.move.n !== lastMove) setMove({ ...snap.move, at: Date.now() });
-      if (snap.move) lastMove = snap.move.n;
-      setHost(snap.midi || null);
+    const apply = (s) => {
+      setSnap(s);
+      if (s.move && lastMove !== null && s.move.n !== lastMove) setMove({ ...s.move, at: Date.now() });
+      if (s.move) lastMove = s.move.n;
     };
-    fetch("../stage/state", { cache: "no-store" })
-      .then((r) => (r.ok ? r.json() : Promise.reject()))
-      .then((snap) => {
-        if (cancelled) return;
-        remote.current = true;
-        setMidi({ status: "remote", inputs: [], outputs: [] });
-        apply(snap);
-        events = new EventSource("../stage/events");
-        events.onmessage = (e) => { try { apply(JSON.parse(e.data)); } catch { /* message abîmé : le suivant le remplace */ } };
-      })
-      .catch(() => { if (!cancelled) openMidi(); });
-    return () => { cancelled = true; if (events) events.close(); };
+    const start = async () => {
+      let res;
+      try { res = await fetch("../stage/state", { cache: "no-store" }); } catch { res = null; }
+      if (stopped) return;
+      if (!res || !res.ok) {
+        setLink(res && res.status === 404 ? "none" : "lost");
+        timer = setTimeout(start, RETRY_MS);
+        return;
+      }
+      apply(await res.json());
+      setLink("ok");
+      events = new EventSource("../stage/events");
+      events.onmessage = (e) => {
+        let s;
+        try { s = JSON.parse(e.data); } catch { return; } // message abîmé : le suivant le remplace
+        setLink("ok");
+        apply(s);
+      };
+      events.onerror = () => {
+        setLink("lost");
+        if (events.readyState === EventSource.CLOSED) { events.close(); timer = setTimeout(start, RETRY_MS); }
+      };
+    };
+    start();
+    return () => { stopped = true; clearTimeout(timer); if (events) events.close(); };
   }, []);
 
-  const ports = pickPorts(prefs, midi.inputs, midi.outputs);
-  useEffect(() => {
-    if (transport) transport.use(ports.inp ? ports.inp.id : "", ports.out ? ports.out.id : "");
-  }, [ports.inp && ports.inp.id, ports.out && ports.out.id, midi.status]);
+  const act = (action) => post({ type: "act", action });
+  const goTo = (p) => { post({ type: "goto", setlist: p.setlist, step: p.step }); setSongsOpen(false); };
 
   useEffect(() => {
     const onKey = (e) => {
@@ -226,126 +151,67 @@ function App() {
       const L = live.current;
       if (L.learning) {
         e.preventDefault();
-        if (e.key === "Escape") { live.current.learning = null; setLearning(null); return; }
-        handleInput(S.eventFromKey(e.key), `Key ${e.key}`);
+        if (e.key !== "Escape") setKeys((k) => S.learn(k, L.learning, S.eventFromKey(e.key)));
+        setLearning(null);
         return;
       }
       if (!L.prefs.keyboard) return;
-      const action = S.actionFor(L.bindings, S.eventFromKey(e.key));
-      if (action) { e.preventDefault(); act(action, S.describeBinding({ type: "key", key: e.key })); }
+      const action = S.actionFor(L.keys, S.eventFromKey(e.key));
+      if (action) { e.preventDefault(); act(action); }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
+  // « ?view=songs|setlists|menu » ouvre un écran (essais, captures).
   useEffect(() => {
-    if (!prefs.wake || !("wakeLock" in navigator)) return;
-    let lock = null;
-    let stopped = false;
-    const acquire = async () => {
-      try { lock = await navigator.wakeLock.request("screen"); } catch { /* refusé : l'écran pourra s'éteindre */ }
-    };
-    const onVisible = () => { if (document.visibilityState === "visible" && !stopped) acquire(); };
-    acquire();
-    document.addEventListener("visibilitychange", onVisible);
-    return () => {
-      stopped = true;
-      document.removeEventListener("visibilitychange", onVisible);
-      if (lock) lock.release().catch(() => {});
-    };
-  }, [prefs.wake]);
-
-  function loadShow(doc, source, { share = true } = {}) {
-    const problems = S.checkShow(doc);
-    if (problems.length) { setError(`${source}: ${problems.slice(0, 3).join(" ")}`); return; }
-    setError("");
-    setShow(doc);
-    live.current.show = doc;
-    setPos(S.startPosition(doc)); // rien n'est envoyé avant la première action
-    if (share && !doc.demo) {
-      fetch(SERVER_SHOW, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(doc) }).catch(() => {});
-    }
-    if (!live.current.prefs.bindingsCustom) setBindings(S.presetBindings(doc));
-    setBrowse(null);
-    setScreen("stage");
-  }
-  async function loadFile(file) {
-    if (!file) return;
-    let doc;
-    try { doc = JSON.parse(await file.text()); } catch { setError(`${file.name}: not valid JSON.`); return; }
-    loadShow(doc, file.name);
-  }
-  async function loadDemo() {
-    try { loadShow(await (await fetch("demo-show.json")).json(), "Demo show"); } catch { setError("The demo show could not be loaded."); }
-  }
-  // « ?demo » dans l'adresse : ouvre directement le show de démo (essai, captures) ;
-  // « &view=songs|setlists|settings » ouvre aussi un écran.
-  useEffect(() => {
-    const q = new URLSearchParams(location.search);
-    const opened = !show && q.has("demo") ? loadDemo() : Promise.resolve();
-    const v = q.get("view");
-    opened.then(() => {
-      if (v === "songs") setSongsOpen(true);
-      else if (v === "setlists" || v === "settings") setScreen(v);
-    });
+    const v = new URLSearchParams(location.search).get("view");
+    if (v === "songs") setSongsOpen(true);
+    else if (v === "setlists" || v === "menu") setScreen(v);
   }, []);
 
-  // Show courant du serveur : à l'ouverture, au retour sur la page et toutes les 5 s. Un autre show
-  // (autre date d'export) remplace le show affiché ; la position est gardée si elle existe encore.
-  useEffect(() => {
-    let stopped = false;
-    const sync = async () => {
-      if (remote.current) return; // l'hôte de scène pousse son show
-      let doc;
-      try {
-        const r = await fetch(SERVER_SHOW, { cache: "no-store" });
-        if (!r.ok) return;
-        doc = await r.json();
-      } catch { return; }
-      const cur = live.current.show;
-      if (stopped || S.checkShow(doc).length || (cur && !cur.demo && cur.exported === doc.exported)) return;
-      if (cur && cur.demo && new URLSearchParams(location.search).has("demo")) return; // ?demo : on reste sur la démo
-      setShow(doc);
-      live.current.show = doc;
-      setPos((p) => S.validPosition(doc, p));
-      if (!live.current.prefs.bindingsCustom) setBindings(S.presetBindings(doc));
-    };
-    sync();
-    const timer = setInterval(sync, SERVER_POLL_MS);
-    const onVisible = () => { if (document.visibilityState === "visible") sync(); };
-    document.addEventListener("visibilitychange", onVisible);
-    return () => { stopped = true; clearInterval(timer); document.removeEventListener("visibilitychange", onVisible); };
-  }, []);
-
-  // Show déposé par ES8 Designer dans ce navigateur (même origine) : pris au démarrage ou à l'arrivée.
-  useEffect(() => {
-    const take = () => {
-      let raw = null;
-      try { raw = localStorage.getItem(INBOX); if (raw) localStorage.removeItem(INBOX); } catch { /* stockage indisponible */ }
-      if (!raw) return;
-      try { loadShow(JSON.parse(raw), "From ES8 Designer"); } catch { setError("The show from ES8 Designer is not valid JSON."); }
-    };
-    take();
-    const onStorage = (e) => { if (e.key === INBOX && e.newValue) take(); };
-    window.addEventListener("storage", onStorage);
-    return () => window.removeEventListener("storage", onStorage);
-  }, []);
-
+  if (!snap) return html`<${NoHost} link=${link} />`;
   const ctx = {
-    show, pos, prefs, setPref, bindings, setBindings, learning, setLearning, midi, ports, traffic, error, backup, states, move,
-    act, goTo, resend: () => {
-      if (remote.current) { post({ type: "resend" }); return; }
-      sendStep(live.current.pos); setTraffic((t) => ({ ...t, in: "screen", action: "Resend" }));
-    },
-    setScreen, songsOpen, setSongsOpen, browse, setBrowse, loadFile, loadDemo, channel: channel(),
-    press: (key, down) => (remote.current ? post({ type: "press", key, down }) : handleSwitch({ key, press: down })), // pavé touché = appui du pied
-    host, remote: remote.current,
+    snap, show: snap.show, pos: snap.pos, states: snap.states || {}, backup: !!snap.backup,
+    traffic: snap.traffic || { in: "", action: "", out: "" }, link, move, prefs, setPref, keys, setKeys, learning, setLearning,
+    act, goTo, resend: () => post({ type: "resend" }), press: (key, down) => post({ type: "press", key, down }),
+    setScreen, songsOpen, setSongsOpen, browse, setBrowse, awake,
   };
-  if (screen === "settings") return html`<${Settings} ...${ctx} />`;
-  if (!show) return html`<${Welcome} ...${ctx} />`;
+  if (screen === "menu" || !snap.show) return html`<${Menu} ...${ctx} />`;
   if (screen === "setlists") return html`<${Setlists} ...${ctx} />`;
   if (prefs.view === "switches") return html`<${SwitchStage} ...${ctx} />`;
   return html`<${Stage} ...${ctx} />`;
+}
+
+/** Bandeaux de scène : hôte injoignable, mode édition (switches sans effet), ES-8 débranché. */
+function Banners({ snap, link, setScreen }) {
+  const out = [];
+  const details = setScreen ? html` <button class="link" onClick=${() => setScreen("menu")}>Details</button>` : null;
+  if (link === "lost") out.push(html`<p class="banner bad">The stage host does not answer: reconnecting… The ES-8 keeps its sound.</p>`);
+  if (snap.edit) {
+    out.push(html`<div class="banner edit">
+      <span><b>Edit mode</b> · the footswitches are paused while the ES-8 is being edited.</span>
+      <button class="primary" onClick=${() => post({ type: "edit", on: false })}>Resume the show</button></div>`);
+  } else if (snap.midi && !snap.midi.connected) {
+    out.push(html`<p class="banner bad">The ES-8 is not connected to the stage host.${details}</p>`);
+  } else if (snap.check && snap.check.state === "mismatch") {
+    out.push(html`<p class="banner warn">The ES-8 does not match this show: some steps may load the wrong patch.${details}</p>`);
+  }
+  return out.length ? html`<div class="banners">${out}</div>` : null;
+}
+
+/** Puce de l'ES-8 dans la barre : branché, vérifié ; toucher ouvre le menu. */
+function ES8Chip({ snap, setScreen }) {
+  const m = snap.midi || {};
+  const c = (snap.check || {}).state;
+  const [dot, text] = !m.connected ? ["bad", "ES-8 not connected"]
+    : snap.edit ? ["warn", "ES-8 · edit mode"]
+    : c === "ok" ? ["ok", "ES-8 · checked"]
+    : c === "mismatch" ? ["warn", "ES-8 · differs"]
+    : c === "checking" ? ["ok", "ES-8 · checking…"]
+    : ["ok", "ES-8"];
+  return html`<button class="chip es8-chip" onClick=${() => setScreen("menu")} title=${m.port || ""}>
+    <span class=${`dot ${dot}`}></span><span class="chip-text">${text}</span></button>`;
 }
 
 // ---------------------------------------------------------------- scène
@@ -391,6 +257,7 @@ function SwitchStage(ctx) {
   return html`
     <div class="app stage-app switch-app">
       <${StatusBar} ...${ctx} />
+      <${Banners} ...${ctx} />
       <div class="sw-stage">
         <header class="sw-head">
           <button class="sw-song" aria-expanded=${songsOpen} onClick=${() => setSongsOpen(true)}>
@@ -419,32 +286,26 @@ function SwitchStage(ctx) {
     </div>`;
 }
 
-function StatusBar({ show, pos, midi, ports, traffic, channel, setScreen, backup, act, prefs, setPref, host, remote }) {
+function StatusBar({ snap, show, pos, traffic, setScreen, backup, act, prefs, setPref, link }) {
   const sl = show.setlists[pos.setlist];
-  const ok = midi.status === "ok";
   return html`
     <header class="bar">
       <button class="bar-title" onClick=${() => setScreen("setlists")}>
-        <span class="eyebrow">Setlist</span><span class="bar-name">${sl.name}${show.demo ? " · demo" : ""}</span>
+        <span class="eyebrow">Setlist</span><span class="bar-name">${sl.name}</span>
       </button>
       <div class="seg view-seg" role="group" aria-label="Stage view">
         <button aria-pressed=${prefs.view !== "switches"} onClick=${() => setPref({ view: "setlist" })}>Setlist</button>
         <button aria-pressed=${prefs.view === "switches"} onClick=${() => setPref({ view: "switches" })}>Switches</button>
       </div>
       <span class="spacer"></span>
-      ${remote
-        ? html`<span class="chip wide" title="This screen shows the stage host, which talks to the ES-8 itself">
-            <span class=${`dot ${host && host.connected ? "ok" : "bad"}`}></span>Stage host · ${host && host.connected ? host.port : "ES-8 not connected"}</span>`
-        : html`<span class="chip wide"><span class=${`dot ${ok && ports.inp ? "ok" : "bad"}`}></span>In · ${ports.inp ? ports.inp.name : "none"}</span>
-          <span class="chip wide"><span class=${`dot ${ok && ports.out ? "ok" : "bad"}`}></span>Out · ${ports.out ? `${ports.out.name} ch ${channel}` : "none"}</span>`}
       <span class="chip mono traffic">
         ${traffic.action ? html`<span class="muted">in</span> ${traffic.in} <span class="muted">→</span> ${traffic.action}` : html`<span class="muted">waiting</span>`}
         ${traffic.out && html` <span class="muted">out</span> <span class="amber">${traffic.out}</span>`}
       </span>
-      <span class=${`dot only-small ${remote ? (host && host.connected ? "ok" : "bad") : ok && ports.out ? "ok" : "bad"}`}></span>
-      <button class=${`chip backup-btn ${backup ? "on" : ""}`} aria-pressed=${backup} onClick=${() => act("backup", "screen")}
+      ${link === "ok" ? html`<${ES8Chip} snap=${snap} setScreen=${setScreen} />` : html`<span class="chip"><span class="dot bad"></span><span class="chip-text">Host lost</span></span>`}
+      <button class=${`chip backup-btn ${backup ? "on" : ""}`} aria-pressed=${backup} onClick=${() => act("backup")}
         title="Switch every step to its backup patch, or back">Backup</button>
-      <button class="icon-btn" aria-label="Settings" onClick=${() => setScreen("settings")}><${Icon} name="menu" /></button>
+      <button class="icon-btn" aria-label="Menu" onClick=${() => setScreen("menu")}><${Icon} name="menu" /></button>
     </header>`;
 }
 
@@ -456,6 +317,7 @@ function Stage(ctx) {
   return html`
     <div class=${`app stage-app ${prefs.panel ? "panel-open" : "panel-closed"}`}>
       <${StatusBar} ...${ctx} />
+      <${Banners} ...${ctx} />
       <div class="stage">
         <section class="center">
           <div class="songhead">
@@ -490,8 +352,8 @@ function Stage(ctx) {
             </div>
           </div>
         </section>
-        <button class="nav nav-prev" onClick=${() => act("prev", "screen")}><${Icon} name="left" size=${30} /><span>Previous</span></button>
-        <button class="nav nav-next" onClick=${() => act("next", "screen")}><span>Next</span><${Icon} name="right" size=${30} /></button>
+        <button class="nav nav-prev" onClick=${() => act("prev")}><${Icon} name="left" size=${30} /><span>Previous</span></button>
+        <button class="nav nav-next" onClick=${() => act("next")}><span>Next</span><${Icon} name="right" size=${30} /></button>
         ${prefs.panel
           ? html`<${Panel} v=${v} prefs=${prefs} setPref=${setPref} states=${ctx.states} />`
           : html`<button class="rail" aria-label="Show side panel" aria-expanded="false" onClick=${() => setPref({ panel: true })}>
@@ -559,7 +421,7 @@ function SongList({ show, pos, goTo, setSongsOpen, setScreen, v }) {
         <ol class="songs">
           ${sl.songs.map((song, k) => html`
             <li><button class=${`song ${k === v.songIndex ? "current" : ""}`} aria-current=${k === v.songIndex}
-                onClick=${() => goTo(S.goToSong(show, pos.setlist, k), `Song ${k + 1}`)}>
+                onClick=${() => goTo(S.goToSong(show, pos.setlist, k))}>
               <span class="song-num">${k + 1}</span>
               <span class="song-text"><span class="song-name">${song.name}</span>
                 <span class="muted small">${show.rigs[song.rig].name} · ${sl.steps.slice(song.first_step, song.first_step + song.steps).map((s) => s.snapshot).join(" → ")}</span></span>
@@ -600,7 +462,7 @@ function Setlists({ show, pos, goTo, browse, setBrowse, setScreen }) {
                   const index = song.first_step + j;
                   const current = shown === pos.setlist && index === pos.step;
                   return html`<button class=${`step ${current ? "current" : ""}`} disabled=${!playable} aria-current=${current}
-                      onClick=${() => goTo({ setlist: shown, step: index }, `Step ${index + 1}`)}>
+                      onClick=${() => goTo({ setlist: shown, step: index })}>
                     <span>${st.snapshot}</span><span class="mono small">PC ${index} · ${st.label}</span></button>`;
                 })}
               </div>
@@ -610,24 +472,17 @@ function Setlists({ show, pos, goTo, browse, setBrowse, setScreen }) {
     </div>`;
 }
 
-// ---------------------------------------------------------------- réglages
+// ---------------------------------------------------------------- menu
 
-const MIDI_HELP = {
-  pending: "Asking the browser for MIDI access…",
-  remote: "This screen shows the stage host (es8stage serve --stage): the host talks MIDI to the ES-8 itself, this screen only shows and controls it.",
-  insecure: "No MIDI on this address: browsers give MIDI only to secure pages (https, or localhost). On a stage host the ES-8 is driven by the host itself; this screen only shows and controls it.",
-  unsupported: "This browser has no Web MIDI. Use Chrome or Edge (Android, Windows, macOS, Linux). Safari on iPhone and iPad has no Web MIDI.",
-  denied: "MIDI access was refused. Allow it in the browser's site settings, then reload.",
-};
-
-/** Les shows de la bibliothèque du serveur (es8stage serve, le Pi) : en jouer un le donne à toutes les Companion. */
-function LibraryShows() {
+/** Les shows de la bibliothèque de l'hôte : en jouer un le donne à tous les écrans. */
+function Shows({ snap }) {
   const [listing, setListing] = useState(null);
   const [busy, setBusy] = useState("");
-  const refresh = () => fetch("../library/").then((r) => (r.ok ? r.json() : null)).then(setListing).catch(() => setListing(null));
-  useEffect(() => { refresh(); }, []);
-  if (!listing) return null;
+  const refresh = () => fetch("../library/", { cache: "no-store" }).then((r) => (r.ok ? r.json() : null)).then(setListing).catch(() => setListing(null));
+  useEffect(() => { refresh(); }, [snap.show && snap.show.exported]);
+  if (!listing) return html`<p class="muted small">The library does not answer.</p>`;
   const play = async (name) => {
+    if (snap.show && !confirm(`Play “${name}”? The stage goes to its first step.`)) return;
     setBusy(name);
     try {
       await fetch(`../library/shows/${encodeURIComponent(name)}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: '{"op":"play"}' });
@@ -635,123 +490,131 @@ function LibraryShows() {
   };
   return html`
     <div class="lib-shows">
-      <h3 class="eyebrow">Shows in the library</h3>
       ${listing.shows.length ? listing.shows.map((it) => html`
         <div class="lib-show">
           <span>${it.name}</span>
-          ${it.name === listing.playing ? html`<span class="muted small">playing</span>`
+          ${it.name === listing.playing ? html`<span class="tag">playing</span>`
             : html`<button class="ghost" disabled=${!!busy} onClick=${() => play(it.name)}>${busy === it.name ? "…" : "Play"}</button>`}
         </div>`)
-        : html`<p class="muted small">None yet: the Show button of ES8 Designer adds one.</p>`}
+        : html`<p class="muted small">None yet: in ES8 Designer, “Send to stage” adds the project's show here and plays it.</p>`}
     </div>`;
 }
 
-function Settings(ctx) {
-  const { show, prefs, setPref, midi, ports, bindings, setBindings, learning, setLearning, setScreen, loadFile, loadDemo, error } = ctx;
-  const fileInput = useRef(null);
-  const showChannel = (show && show.es8 && show.es8.rx_channel) || 1;
-  const startLearn = (id) => setLearning(learning === id ? null : id);
+const CHECK_TEXT = {
+  ok: "The ES-8 matches this show: every step loads the right patch.",
+  mismatch: "The ES-8 does not match this show. In ES8 Designer, open the project and use “Send to stage”.",
+  checking: "Reading the ES-8 settings…",
+  error: "The check failed.",
+  unknown: "Not checked yet.",
+};
+
+function ES8Box({ snap }) {
+  const m = snap.midi || {};
+  const c = snap.check || { state: "unknown" };
+  const busy = snap.job && !snap.job.done;
+  return html`
+    <section class="box">
+      <h2 class="eyebrow">ES-8</h2>
+      <p><span class=${`dot ${m.connected ? "ok" : "bad"}`}></span> ${m.connected ? `Connected · ${m.port}` : `Not connected (looking for “${m.match}”)`}</p>
+      ${m.connected ? html`
+        <p class=${c.state === "mismatch" || c.state === "error" ? "notice" : "muted"}>${CHECK_TEXT[c.state] || c.state}
+          ${c.state === "error" && c.error ? ` ${c.error}` : ""}</p>
+        ${c.setlists && c.state === "mismatch" ? html`<ul class="small">${c.setlists.map((s) => html`
+          <li>${s.name} (MIDI bank ${s.midi_bank}): ${s.ok ? "matches" : "differs"}</li>`)}
+          ${c.channel !== c.show_channel ? html`<li>The ES-8 listens on channel ${c.channel}, the show sends on ${c.show_channel}.</li>` : null}</ul>` : null}
+        <div class="row-wrap">
+          <button class="ghost" disabled=${busy || snap.edit} onClick=${() => post({ type: "check" })}>Check now</button>
+        </div>` : html`<p class="muted small">The stage host reconnects by itself. If it does not after a minute,
+          switch the WIDI (or the ES-8) off and on, or use Reconnect on the <a href="../host/">host page</a>.</p>`}
+      <label class="check"><input type="checkbox" checked=${!!snap.edit} onChange=${(e) => post({ type: "edit", on: e.target.checked })} />
+        <span><b>Edit mode</b> <span class="muted small">pauses the footswitches so that ES8 Designer or ES8 Control can write to the ES-8.
+          It turns itself off after 10 minutes without editing.</span></span></label>
+    </section>`;
+}
+
+function KeysBox({ keys, setKeys, learning, setLearning, prefs, setPref }) {
+  return html`
+    <section class="box actions">
+      <div class="box-head">
+        <h2 class="eyebrow">Page-turner pedals · keyboard</h2>
+        <button class="ghost" onClick=${() => { setKeys(S.DEFAULT_KEY_BINDINGS); setLearning(null); }}>Default keys</button>
+      </div>
+      <label class="check"><input type="checkbox" checked=${prefs.keyboard} onChange=${(e) => setPref({ keyboard: e.target.checked })} />
+        Accept the keys of a Bluetooth pedal or a keyboard on this screen</label>
+      ${S.ACTIONS.map((a) => {
+        const mine = keys.filter((b) => b.action === a.id);
+        return html`<div class="action-row">
+          <span class="action-name">${a.label}</span>
+          <span class="grow">
+            ${learning === a.id
+              ? html`<span class="listening">Press a pedal or a key (Esc cancels)</span>`
+              : mine.length ? mine.map((b) => html`<span class="tag mono">${S.describeBinding(b)}</span>`) : html`<span class="muted">none</span>`}
+          </span>
+          <button class=${learning === a.id ? "primary" : "ghost"} onClick=${() => setLearning(learning === a.id ? null : a.id)}>${learning === a.id ? "Cancel" : "Learn"}</button>
+          <button class="ghost" disabled=${!mine.length} onClick=${() => setKeys(S.clearAction(keys, a.id))}>Clear</button>
+        </div>`;
+      })}
+      <p class="muted small">The ES-8 footswitches are set in ES8 Designer (surfaces); these keys only work on this screen.</p>
+    </section>`;
+}
+
+function Menu(ctx) {
+  const { snap, show, setScreen, setLearning, prefs, setPref, awake, link } = ctx;
   return html`
     <div class="app page">
       <header class="bar">
-        ${show && html`<button class="ghost" onClick=${() => { setLearning(null); setScreen("stage"); }}><${Icon} name="left" size=${18} /> Stage</button>`}
-        <h1 class="page-title">Settings</h1>
+        ${show ? html`<button class="ghost" onClick=${() => { setLearning(null); setScreen("stage"); }}><${Icon} name="left" size=${18} /> Stage</button>` : null}
+        <h1 class="page-title">ES8 Companion</h1>
+        <span class="spacer"></span>
+        <${ES8Chip} snap=${snap} setScreen=${() => {}} />
       </header>
       <div class="page-body settings">
+        <${Banners} snap=${snap} link=${link} />
         <section class="box">
           <h2 class="eyebrow">Show</h2>
-          ${show ? html`<p>${show.setlists.map((s) => s.name).join(" · ")}${show.demo ? " (demo)" : ""}</p>
-              <p class="muted small">Exported ${show.exported ? new Date(show.exported).toLocaleString([], { dateStyle: "medium", timeStyle: "short" }) : "?"} · ${show.setlists.length} setlist(s)</p>`
-            : html`<p class="muted">No show loaded.</p>`}
+          ${show ? html`<p class="box-title">${show.setlists.map((s) => s.name).join(" · ")}</p>
+              <p class="muted small">Exported ${show.exported ? new Date(show.exported).toLocaleString([], { dateStyle: "medium", timeStyle: "short" }) : "?"}</p>`
+            : html`<p>No show is played yet. Choose one below, or prepare it in ES8 Designer and use “Send to stage”.</p>`}
+          <${Shows} snap=${snap} />
+        </section>
+        <${ES8Box} snap=${snap} />
+        <section class="box">
+          <h2 class="eyebrow">Prepare</h2>
           <div class="row-wrap">
-            <button class="primary" onClick=${() => fileInput.current.click()}>Load a show file…</button>
-            <button class="ghost" onClick=${loadDemo}>Try the demo show</button>
-            <input ref=${fileInput} type="file" accept=".json,application/json" hidden
-              onChange=${(e) => { loadFile(e.target.files[0]); e.target.value = ""; }} />
+            <a class="primary" href="../designer/">ES8 Designer</a>
+            <a class="ghost" href="../control/">ES8 Control</a>
+            <a class="ghost" href="../host/">Stage host</a>
           </div>
-          ${error && html`<p class="notice">${error}</p>`}
-          <${LibraryShows} />
+          <p class="muted small">ES8 Designer: pedalboard, rigs, songs and setlists, then “Send to stage”. ES8 Control: classic patch editing.
+            Stage host: ES-8 backups, the library, the Pi itself.</p>
         </section>
-
+        <${KeysBox} ...${ctx} />
         <section class="box">
-          <h2 class="eyebrow">Output · to the ES-8</h2>
-          ${midi.status !== "ok" && html`<p class="notice">${MIDI_HELP[midi.status] || midi.status}</p>`}
-          <label class="field">MIDI port
-            <select value=${ports.out ? ports.out.name : ""} onChange=${(e) => setPref({ outName: e.target.value })}>
-              ${midi.outputs.map((p) => html`<option value=${p.name}>${p.name}</option>`)}
-              <option value="">None</option>
-            </select>
-          </label>
-          <label class="field">ES-8 receive channel
-            <select value=${prefs.channel} onChange=${(e) => setPref({ channel: Number(e.target.value) })}>
-              <option value="0">From the show (${showChannel})</option>
-              ${Array.from({ length: 16 }, (_, i) => html`<option value=${i + 1}>${i + 1}</option>`)}
-            </select>
-          </label>
-        </section>
-
-        <section class="box">
-          <h2 class="eyebrow">Input · controller</h2>
-          <label class="field">MIDI port
-            <select value=${ports.inp ? ports.inp.name : ""} onChange=${(e) => setPref({ inName: e.target.value })}>
-              ${midi.inputs.map((p) => html`<option value=${p.name}>${p.name}</option>`)}
-              <option value="">None</option>
-            </select>
-          </label>
-          <label class="check"><input type="checkbox" checked=${prefs.keyboard} onChange=${(e) => setPref({ keyboard: e.target.checked })} />
-            Also accept the keyboard (page-turner pedals)</label>
-          <p class="muted small">The Companion sends the PCs. If the controller is also wired straight to the ES-8, its messages arrive twice.</p>
-        </section>
-
-        <section class="box actions">
-          <div class="box-head">
-            <h2 class="eyebrow">Actions</h2>
-            <span class="tag">${prefs.bindingsCustom ? "Edited by hand" : show && show.input_preset ? `Preset · ${show.input_preset.source}` : "Default keys"}</span>
-            <button class="ghost" onClick=${() => { setBindings(S.presetBindings(show)); setPref({ bindingsCustom: false }); setLearning(null); }}>Restore preset</button>
-          </div>
-          ${S.ACTIONS.map((a) => {
-            const mine = bindings.filter((b) => b.action === a.id);
-            return html`<div class="action-row">
-              <span class="action-name">${a.label}</span>
-              <span class="grow">
-                ${learning === a.id
-                  ? html`<span class="listening">Listening: press a switch or a key (Esc cancels)</span>`
-                  : mine.length ? mine.map((b) => html`<span class="tag mono">${S.describeBinding(b)}</span>`) : html`<span class="muted">not assigned</span>`}
-              </span>
-              <button class=${learning === a.id ? "primary" : "ghost"} onClick=${() => startLearn(a.id)}>${learning === a.id ? "Cancel" : "Learn"}</button>
-              <button class="ghost" disabled=${!mine.length} onClick=${() => { setBindings(S.clearAction(bindings, a.id)); setPref({ bindingsCustom: true }); }}>Clear</button>
-            </div>`;
-          })}
-          <p class="muted small">Triggers on press; releases are ignored, so use momentary switches. A message used by another action is taken from it.
-            Incoming Program Changes can't be assigned: they are what the Companion sends.</p>
-        </section>
-
-        <section class="box">
-          <h2 class="eyebrow">Screen</h2>
+          <h2 class="eyebrow">This screen</h2>
           <label class="check"><input type="checkbox" checked=${prefs.wake} onChange=${(e) => setPref({ wake: e.target.checked })} />
             Keep the screen awake</label>
+          ${prefs.wake && awake !== "lock" ? html`<p class="muted small">${awake === "video"
+            ? "Kept awake by a silent video (this address has no Wake Lock)."
+            : "Tap the screen once to keep it awake."} On an iPad, to be sure: Settings › Display & Brightness › Auto-Lock › Never.</p>` : null}
         </section>
       </div>
     </div>`;
 }
 
-function Welcome({ setScreen, loadDemo }) {
+/** Pas d'hôte de scène (encore) : on attend, ou on explique. */
+function NoHost({ link }) {
   return html`
     <div class="app page welcome">
       <div class="welcome-body">
         <h1>ES8 Companion</h1>
-        <p>Plays a setlist on a BOSS ES-8 during the show: a controller press moves to the next step and the
-          Companion sends its Program Change. Export the show from ES8 Designer or <code>es8ctl</code>, then load it here.</p>
-        <div class="row-wrap">
-          <button class="primary" onClick=${() => setScreen("settings")}>Load a show…</button>
-          <button class="ghost" onClick=${loadDemo}>Try the demo show</button>
-        </div>
+        ${link === "none"
+          ? html`<p>This server is not a stage host. ES8 Companion is the screen of a stage host, which plays the show
+              and talks to the ES-8: run <code>es8stage serve --stage</code> (on the Raspberry Pi, or on this computer to rehearse).</p>`
+          : link === "lost"
+            ? html`<p>The stage host does not answer. Trying again…</p>`
+            : html`<p class="muted">Connecting to the stage host…</p>`}
       </div>
     </div>`;
 }
 
 render(html`<${App} />`, document.getElementById("root"));
-
-if ("serviceWorker" in navigator && (location.protocol === "https:" || location.hostname === "localhost")) {
-  navigator.serviceWorker.register("sw.js").catch(() => { /* hors ligne indisponible, l'app marche quand même */ });
-}

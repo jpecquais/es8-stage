@@ -334,3 +334,18 @@ code { font-family: var(--font-mono); font-size: 0.9em; }
 /* Shows de la bibliothèque du serveur */
 .lib-shows { display: grid; gap: 6px; margin-top: 8px; padding-top: 10px; border-top: 1px solid var(--line, #333); }
 .lib-show { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 40px; }
+
+/* ---------------------------------------------------------------- hôte de scène : bandeaux, puce de l'ES-8 */
+.dot.warn { background: var(--now); }
+a.ghost, a.primary { text-decoration: none; color: inherit; }
+a.primary { color: var(--on-next); }
+.es8-chip { background: none; color: inherit; cursor: pointer; }
+@media (max-width: 700px) { .es8-chip .chip-text { display: none; } }
+.banners { display: flex; flex-direction: column; gap: 8px; padding: 8px 12px 0; }
+.banner { margin: 0; display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 10px 14px; border-radius: 10px;
+  font-size: 16px; border: 1px solid var(--line-hi); background: var(--panel); }
+.banner.bad { border-color: var(--bad); background: var(--warn-soft); color: #ffd9c4; }
+.banner.warn { border-color: var(--now); background: var(--now-soft); }
+.banner.edit { border: 2px solid var(--now); background: var(--now-soft); font-size: 18px; justify-content: space-between; }
+.banner .link { background: none; border: none; padding: 0; color: inherit; text-decoration: underline; font-size: inherit; }
+.settings .banners { grid-column: 1 / -1; padding: 0; }

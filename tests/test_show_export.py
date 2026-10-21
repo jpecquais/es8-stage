@@ -2,8 +2,6 @@
 
 import hashlib
 import json
-import shutil
-import subprocess
 from pathlib import Path
 
 import pytest
@@ -12,7 +10,6 @@ from test_rig_model import FIXTURE, PEDALBOARD, project_doc, write_project
 from es8core.diff import load_dump
 from es8stage.model import ModelError, compile_project, export_show, load_project, project_from_doc
 
-SHOW_JS = Path(__file__).parents[1] / "web" / "companion" / "show.js"
 
 
 def companion_doc():
@@ -101,18 +98,15 @@ def test_cli_rig_show(tmp_path):
     assert CliRunner().invoke(app, ["rig", "show", str(rig)]).exit_code == 2
 
 
-@pytest.mark.skipif(shutil.which("node") is None, reason="Node absent")
-def test_exported_show_is_accepted_by_the_companion():
+def test_exported_show_is_played_by_the_stage_host():
+    from es8stage import stage as P
+
     show = export_show(project_from_doc(companion_doc()))
-    script = f"""
-import * as S from {json.dumps(SHOW_JS.as_uri())};
-const show = {json.dumps(show)};
-console.log(JSON.stringify({{ problems: S.checkShow(show), now: S.view(show, S.startPosition(show)).step.snapshot,
-  next: S.actionFor(S.presetBindings(show), S.eventFromMidi([0xbf, 80, 127])) }}));
-"""
-    r = json.loads(subprocess.run(["node", "--input-type=module", "-e", script],
-                                  capture_output=True, text=True, check=True).stdout)
-    assert r == {"problems": [], "now": "Intro", "next": "next"}
+    st = P.Stage()
+    st.load(show)
+    steps = show["setlists"][0]["steps"]
+    assert P.check_show(show) == [] and steps[st.pos["step"]]["snapshot"] == "Intro"
+    assert st.act("next") and st.pos["step"] == 1
 
 
 def test_web_show_export():

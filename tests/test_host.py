@@ -125,7 +125,7 @@ def _show_for(es8, bank_entries=None, channel=None):
 
     values = decode_system(split_dump([es8.mem[c] for c in sorted(es8.mem)]).system)
     entries = bank_entries or values["pc_map_bank0_pc"]
-    show = json.loads((Path(__file__).parents[1] / "web" / "companion" / "demo-show.json").read_text())
+    show = json.loads((Path(__file__).parent / "fixtures" / "demo-show.json").read_text())
     show["setlists"] = show["setlists"][:1]
     show["setlists"][0]["pc_map"] = "sha256:" + hashlib.sha256(bytes(b for e in entries for b in e.to_bytes(2, "big"))).hexdigest()
     show["es8"] = {"rx_channel": channel or values["midi_setting_rx_ch"] + 1}

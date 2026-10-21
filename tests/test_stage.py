@@ -1,16 +1,11 @@
-"""Hôte de scène : la logique Python (es8core.stage) est celle de web/companion/show.js, cas par cas."""
+"""Hôte de scène : la logique de jeu (es8stage.stage), seule à jouer le show depuis que la Companion n'est plus qu'un écran."""
 
 import json
-import shutil
-import subprocess
 from pathlib import Path
-
-import pytest
 
 from es8stage import stage as P
 
-COMPANION = Path(__file__).parents[1] / "web" / "companion"
-DEMO = json.loads((COMPANION / "demo-show.json").read_text(encoding="utf-8"))
+DEMO = json.loads((Path(__file__).parent / "fixtures" / "demo-show.json").read_text(encoding="utf-8"))
 
 
 def demo_with_group():
@@ -24,76 +19,50 @@ def demo_with_group():
     return g
 
 
-def scenario(show):
-    """Opérations à jouer des deux côtés : (nom, arguments)."""
-    ops = []
-    for k, sl in enumerate(show["setlists"]):
-        for i in range(len(sl["steps"])):
-            pos = {"setlist": k, "step": i}
-            for a in ("next", "prev", "next_song", "prev_song", "song_start", "bogus"):
-                ops.append(["move", pos, a])
-            ops.append(["startStates", pos])
-            for b in (False, True):
-                ops.append(["played", sl["steps"][i], i, b])
-    ops += [["switchFromMidi", d] for d in ([0xBF, 80, 127], [0xBF, 80, 0], [0xBF, 91, 127], [0xBE, 80, 127], [0xBF, 99, 1], [0xC0, 1])]
-    ops += [["validPosition", p] for p in ({"setlist": 0, "step": 3}, {"setlist": 9, "step": 0}, {"setlist": 0, "step": 99}, None)]
-    return ops
+def test_moves_and_steps():
+    at = lambda step: {"setlist": 0, "step": step}  # noqa: E731
+    assert P.check_show(DEMO) == [] and len(P.check_show({"schema": "x", "setlists": []})) >= 2
+    assert P.start_position(DEMO) == at(0) and P.valid_position(DEMO, at(7)) == at(7)
+    assert P.valid_position(DEMO, {"setlist": 1, "step": 0}) == {"setlist": 1, "step": 0}  # banque MIDI 1 : jouable
+    assert P.valid_position(DEMO, {"setlist": 0, "step": 99}) == at(0) and P.valid_position(DEMO, None) == at(0)
+    assert P.move(DEMO, at(5), "next") == at(6) and P.move(DEMO, at(5), "prev") == at(4)
+    assert P.move(DEMO, at(12), "next") is None and P.move(DEMO, at(0), "prev") is None  # rien à envoyer aux bouts
+    assert P.move(DEMO, at(5), "next_song") == at(8) and P.move(DEMO, at(5), "prev_song") == at(0)
+    assert P.move(DEMO, at(1), "prev_song") is None and P.move(DEMO, at(11), "next_song") is None
+    assert P.move(DEMO, at(5), "song_start") == at(2) and P.move(DEMO, at(2), "song_start") is None
+    assert P.move(DEMO, at(5), "bogus") is None
+    assert P.step_messages(1, 0, 5) == [[0xB0, 0, 0], [0xC0, 5]] and P.step_messages(16, 6, 127) == [[0xBF, 0, 6], [0xCF, 127]]
+    step = DEMO["setlists"][0]["steps"][5]
+    assert P.played(step, 5, False) == {"pc": 5, "label": "12-2", "snapshot": "Chorus", "backup": False}
+    assert P.played(step, 5, True) == {"pc": 126, "label": "40-2", "snapshot": "Lead", "rig": "GP50 backup", "backup": True}
+    assert P.played(DEMO["setlists"][0]["steps"][0], 0, True)["backup"] is False  # pas sans secours : le son normal
 
 
-def presses(show):
-    """Une suite d'appuis enchaînés sur un pas (l'état passe de l'un à l'autre)."""
-    return [["NUM1", True], ["NUM1", False], ["NUM5", True], ["NUM6", True], ["NUM6", True], ["NUM1", True],
-            ["NUM4", True], ["NUM4", False], ["BANK_U", True], ["NUM3", True], ["NUM8", True], ["XX", True]]
-
-
-JS = """
-import * as S from %s;
-const [show, ops, seq, pos] = %s;
-const out = ops.map(([op, ...a]) => {
-  if (op === "move") return S.move(show, a[0], a[1]);
-  if (op === "startStates") return S.startStates(show, a[0]);
-  if (op === "played") return S.played(a[0], a[1], a[2]);
-  if (op === "switchFromMidi") return S.switchFromMidi(show, a[0]);
-  if (op === "validPosition") return S.validPosition(show, a[0]);
-});
-let states = S.startStates(show, pos);
-const chain = seq.map(([key, down]) => {
-  const r = S.pressSwitch(show, pos, key, down, states);
-  if (r && r.states) states = r.states;
-  return r && (r.action ? { action: r.action, label: r.label } : { states: r.states, messages: r.messages, on: r.on, label: r.label });
-});
-console.log(JSON.stringify({ out, chain, lit: Object.fromEntries(Object.entries(show.rigs.crunch.surface.switches).map(([k, sw]) => [k, S.switchIsOn(sw, states)])) }));
-"""
-
-
-def python_side(show, ops, seq, pos):
-    out = []
-    for op, *a in ops:
-        out.append({"move": lambda: P.move(show, a[0], a[1]), "startStates": lambda: P.start_states(show, a[0]),
-                    "played": lambda: P.played(a[0], a[1], a[2]), "switchFromMidi": lambda: P.switch_from_midi(show, a[0]),
-                    "validPosition": lambda: P.valid_position(show, a[0])}[op]())
-    states = P.start_states(show, pos)
-    chain = []
-    for key, down in seq:
-        r = P.press_switch(show, pos, key, down, states)
-        if r and "states" in r:
-            states = r["states"]
-        chain.append(r)
-    lit = {k: P.switch_is_on(sw, states) for k, sw in show["rigs"]["crunch"]["surface"]["switches"].items()}
-    return {"out": out, "chain": chain, "lit": lit}
-
-
-@pytest.mark.skipif(shutil.which("node") is None, reason="Node absent")
-@pytest.mark.parametrize("show", [DEMO, demo_with_group()], ids=["demo", "group"])
-def test_python_logic_is_the_companion_logic(show):
-    ops, seq, pos = scenario(show), presses(show), {"setlist": 0, "step": 3}
-    script = JS % (json.dumps((COMPANION / "show.js").as_uri()), json.dumps([show, ops, seq, pos]))
-    js = json.loads(subprocess.run(["node", "--input-type=module", "-e", script], capture_output=True, text=True, check=True).stdout)
-    py = json.loads(json.dumps(python_side(show, ops, seq, pos)))
-    assert py["out"] == js["out"]
-    assert py["chain"] == js["chain"]
-    assert py["lit"] == js["lit"]
-    assert len(ops) > 100
+def test_switches_groups_and_steps_of_a_selector():
+    pos = {"setlist": 0, "step": 3}  # White Night / Chorus : drive on au départ
+    st = P.start_states(DEMO, pos)
+    assert st == {"daw.drive": 127, "daw.delay": 127, "reverb.freeze": 0}
+    assert P.switch_from_midi(DEMO, [0xBF, 80, 127]) == {"key": "NUM1", "press": True}
+    assert P.switch_from_midi(DEMO, [0xBE, 80, 127]) is None and P.switch_from_midi(DEMO, [0xBF, 99, 1]) is None
+    assert P.switch_from_midi(DEMO, [0xC0, 1]) is None
+    r1 = P.press_switch(DEMO, pos, "NUM1", True, st)
+    r2 = P.press_switch(DEMO, pos, "NUM1", True, r1["states"])
+    assert (r1["messages"], r1["on"], r2["messages"], r2["on"]) == ([[0xB0, 18, 0]], False, [[0xB0, 18, 127]], True)
+    assert P.press_switch(DEMO, pos, "NUM1", False, r2["states"]) is None  # une bascule ignore le relâchement
+    f1 = P.press_switch(DEMO, pos, "NUM4", True, st)
+    assert [f1["messages"], P.press_switch(DEMO, pos, "NUM4", False, f1["states"])["messages"]] == [[[0xB1, 21, 127]], [[0xB1, 21, 0]]]
+    assert P.press_switch(DEMO, pos, "BANK_U", True, st) == {"action": "next", "label": "Next"}
+    assert P.press_switch(DEMO, pos, "NUM5", True, st) is None  # boucle : l'ES-8 s'en charge
+    g = demo_with_group()
+    sws = g["rigs"]["crunch"]["surface"]["switches"]
+    st = P.start_states(g, pos)
+    od = P.press_switch(g, pos, "NUM5", True, st)
+    muff = P.press_switch(g, pos, "NUM6", True, od["states"])
+    back = P.press_switch(g, pos, "NUM6", True, muff["states"])
+    lit = lambda states: [k for k in ("NUM1", "NUM5", "NUM6") if P.switch_is_on(sws[k], states)]  # noqa: E731
+    assert (od["messages"], lit(od["states"])) == ([[0xB0, 22, 24], [0xB0, 18, 0]], ["NUM5"])  # OD choisi, Drive coupé
+    assert (muff["messages"], lit(muff["states"])) == ([[0xB0, 22, 40]], ["NUM6"])  # un autre cran
+    assert (back["messages"], lit(back["states"])) == ([[0xB0, 22, 8]], [])  # réappuyer : retour au off (Clean)
 
 
 def test_stage_engine_moves_presses_and_sends():
