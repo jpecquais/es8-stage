@@ -819,7 +819,7 @@ function Tray({ s, preview, title }) {
   // Sur une tablette, la colonne devient un panneau en bas : replié, il montre l'état et le bouton ; le toucher le déplie.
   const [open, setOpen] = useState(false);
   const head = (h3, badge) => html`<header onClick=${() => setOpen(!open)}>
-    <h3>${h3}</h3>${badge}<button class="x tray-toggle" aria-label=${open ? "Fold" : "Unfold"} aria-expanded=${open}>${open ? "▾" : "▴"}</button></header>`;
+    <h3>${h3}</h3>${badge}<button class="btn small tray-toggle" aria-expanded=${open}>${open ? "Hide ▾" : "Details ▴"}</button></header>`;
   const cls = `tray ${open ? "open" : ""}`;
   if (!preview) return html`<aside class=${cls}>${head("To the ES-8")}<div class="scroll muted">Compiling…</div></aside>`;
   let badge, body;
