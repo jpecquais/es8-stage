@@ -349,3 +349,21 @@ a.primary { color: var(--on-next); }
 .banner.edit { border: 2px solid var(--now); background: var(--now-soft); font-size: 18px; justify-content: space-between; }
 .banner .link { background: none; border: none; padding: 0; color: inherit; text-decoration: underline; font-size: inherit; }
 .settings .banners { grid-column: 1 / -1; padding: 0; }
+
+/* ---------------------------------------------------------------- accueil */
+.home .page-body { gap: 22px; }
+.home-group { display: flex; flex-direction: column; gap: 10px; }
+.favs { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 10px; }
+.fav { min-height: 92px; padding: 12px 14px; border-radius: var(--r); border: 1px solid var(--line-hi); background: var(--panel);
+  display: flex; flex-direction: column; justify-content: space-between; align-items: flex-start; text-align: left; touch-action: manipulation; }
+.fav-name { font-family: var(--font-display); font-weight: 700; font-size: 26px; line-height: 1.05; }
+.fav .small { color: var(--muted); font-size: 13px; }
+.fav.current { background: var(--now); border-color: var(--now); color: var(--on-now); }
+.fav.current .small { color: var(--on-now); }
+.rows { border-radius: var(--r); background: var(--panel); overflow: hidden; }
+.home-row { width: 100%; min-height: 64px; padding: 10px 16px; display: flex; align-items: center; gap: 12px; text-align: left;
+  border: 0; background: none; border-top: 1px solid var(--line); }
+.home-row:first-child { border-top: 0; }
+.home-row .song-text { flex: 1; }
+.home-row.current { background: var(--now-soft); }
+.home-row.current .song-name { color: var(--now); }

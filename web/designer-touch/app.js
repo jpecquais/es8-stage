@@ -1,7 +1,9 @@
 // ES8 Designer au doigt — prototype (Preact + htm, sans compilation). Textes en anglais.
 // Structure et choix : docs/designer-touch.md. Trois colonnes comme une appli iPad : rubriques · liste ·
 // détail. Les collections sont des listes (Modifier pour réordonner ou supprimer), le détail un formulaire
-// en groupes ; seul le pédalier de l'ES-8 est dessiné à sa place. Lit le set joué ; n'enregistre rien.
+// en groupes ; seul le pédalier de l'ES-8 est dessiné à sa place. Rubriques dans l'ordre où l'on construit :
+// le matériel, les footswitches, les sons, les morceaux, puis les setlists et les favoris (l'accueil de la
+// Companion). Ouvre le set joué ; « Save » l'enregistre dans la bibliothèque (rien n'est écrit sur l'ES-8).
 
 import { html, render, useState, useEffect, useRef } from "../shared/vendor/preact-htm.module.js";
 import { es8Status } from "../stage-shared/nav.js";
@@ -12,12 +14,13 @@ const SWITCH_NAME = { MEM_M: "MEM/MAN", BANK_D: "BANK ▼", BANK_U: "BANK ▲", 
 const COMPANION_ACTIONS = [["next", "Next step"], ["prev", "Previous step"], ["next_song", "Next song"], ["prev_song", "Previous song"], ["song_start", "Song start"]];
 const LOOPS = ["L1", "L2", "L3", "L4", "L5", "L6", "L7", "L8", "V"];
 const SECTIONS = [
-  ["setlist", "Setlist", "M4 6h16M4 12h16M4 18h10"],
-  ["songs", "Songs", "M9 18V5l12-2v13M9 18a3 3 0 1 1-6 0 3 3 0 0 1 6 0zM21 16a3 3 0 1 1-6 0 3 3 0 0 1 6 0z"],
-  ["sounds", "Sounds", "M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6"],
-  ["switches", "Footswitches", "M3 5h18v14H3zM8 10h.01M12 10h.01M16 10h.01M8 14h.01M12 14h.01M16 14h.01"],
   ["pedalboard", "Pedalboard", "M4 4h6v16H4zM14 4h6v16h-6z"],
+  ["switches", "Footswitches", "M3 5h18v14H3zM8 10h.01M12 10h.01M16 10h.01M8 14h.01M12 14h.01M16 14h.01"],
+  ["sounds", "Sounds", "M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6"],
+  ["songs", "Songs", "M9 18V5l12-2v13M9 18a3 3 0 1 1-6 0 3 3 0 0 1 6 0zM21 16a3 3 0 1 1-6 0 3 3 0 0 1 6 0z"],
+  ["setlists", "Setlists & favorites", "M4 6h16M4 12h16M4 18h10"],
 ];
+const MIDI_BANKS = 7; // setlists que l'ES-8 suit par PC (pc_map) : une banque MIDI chacune
 
 const clone = (x) => JSON.parse(JSON.stringify(x));
 const swName = (key) => SWITCH_NAME[key] || key;
@@ -40,6 +43,9 @@ function allParams(doc) {
   return out;
 }
 const loopDevice = (doc, loop) => Object.values(doc.pedalboard.devices || {}).find((d) => (d.loops || []).includes(loop));
+const favorites = (doc) => doc.favorites || [];
+const isFavorite = (doc, rid, name) => favorites(doc).some((f) => f.rig === rid && f.sound === name);
+const setlistIds = (doc) => Object.keys(doc.setlists || {}).sort((a, b) => doc.setlists[a].midi_bank - doc.setlists[b].midi_bank);
 const sortedTracks = (doc) => Object.entries(doc.tracks || {}).sort((a, b) => a[1].name.localeCompare(b[1].name));
 
 function switchText(doc, sw) {
@@ -144,7 +150,8 @@ function App() {
   const [doc, setDoc] = useState(null);
   const [error, setError] = useState("");
   const [snap, setSnap] = useState(null);
-  const [section, setSection] = useState("setlist");
+  const [section, setSection] = useState("pedalboard");
+  const [saving, setSaving] = useState(false);
   const [sel, setSel] = useState({}); // sélection par rubrique
   const [stack, setStack] = useState([]); // écrans poussés dans la colonne détail (listes à cocher, paramètre…)
   const [editing, setEditing] = useState(false);
@@ -183,8 +190,18 @@ function App() {
   const pop = () => setStack((s) => s.slice(0, -1));
   const ctx = { doc, edit, sel: sel[section] || {}, select, goTo, push, pop, editing, setEditing, toast };
   const changed = JSON.stringify(doc) !== JSON.stringify(loaded.doc);
+  const save = async () => {
+    setSaving(true);
+    try {
+      const res = await fetch(`../library/projects/${encodeURIComponent(loaded.name)}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(doc) });
+      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || `error ${res.status}`);
+      setLoaded({ name: loaded.name, doc: clone(doc) });
+      toast("Saved. Send to stage to give it to the Companion.");
+    } catch (err) { toast(`Not saved: ${err.message}`); }
+    setSaving(false);
+  };
   const [dot, text] = snap ? es8Status(snap) : ["", "ES-8"];
-  const counts = { setlist: (Object.values(doc.setlists)[0] || { songs: [] }).songs.length, songs: Object.keys(doc.tracks).length,
+  const counts = { setlists: Object.keys(doc.setlists || {}).length, songs: Object.keys(doc.tracks).length,
     sounds: Object.values(doc.rigs).reduce((n, r) => n + r.snapshots.length, 0), pedalboard: Object.keys(doc.pedalboard.devices).length };
   const S = SCREENS[section];
   const wide = section === "switches" || section === "pedalboard";
@@ -203,8 +220,8 @@ function App() {
         </div>
         <div class="side-foot">
           <span class="status"><span class=${`dot ${dot}`}></span>${text}</span>
-          <button class="send" onClick=${() => toast("Prototype: Send to stage is in the regular Designer for now.")}>Send to stage</button>
-          <span class="proto">Prototype: changes are not saved.${changed ? html` <button onClick=${() => { setDoc(clone(loaded.doc)); setStack([]); }}>Undo all</button>` : null}
+          ${changed ? html`<button class="save" disabled=${saving} onClick=${save}>${saving ? "Saving…" : "Save"}</button>` : null}
+          <span class="proto">Prototype. Send to stage is in the regular Designer for now.${changed ? html` <button onClick=${() => { setDoc(clone(loaded.doc)); setStack([]); }}>Undo all</button>` : null}
             · <a href="../designer/">Regular Designer</a></span>
         </div>
       </aside>
@@ -273,7 +290,7 @@ function songDetail(ctx, id, extra) {
   const sounds = rig ? rig.snapshots : [];
   const soundPick = (title, current, onPick) => push({ kind: "pick", title, back: tr.name, current,
     options: sounds.map((s, i) => ({ value: s.name, label: s.name, sub: patchOf(rig, i) })), onPick });
-  const inSets = Object.values(doc.setlists || {}).filter((s) => s.songs.some((x) => x.track === id)).map((s) => s.name);
+  const inSets = Object.entries(doc.setlists || {}).filter(([, s]) => s.songs.some((x) => x.track === id)).map(([sid, s]) => [sid, s.name]);
   return html`<${SongSteps} ...${ctx} id=${id} tr=${tr} rig=${rig} soundPick=${soundPick} inSets=${inSets} extra=${extra} />`;
 }
 
@@ -297,49 +314,12 @@ function SongSteps({ doc, edit, push, goTo, id, tr, rig, soundPick, inSets, extr
     </${Group}>
     <${Group}><${Row} cls="action" title="+ Add a step" onTap=${() => soundPick("Add a step", null, (v) => edit((d) => { d.tracks[id].sequence.push(v); }))} /></${Group}>
     ${extra}
-    <${Group} title="In setlists">${inSets.length ? inSets.map((n) => html`<${Row} title=${n} link onTap=${() => goTo("setlist", {})} />`)
+    <${Group} title="In setlists">${inSets.length ? inSets.map(([sid, n]) => html`<${Row} title=${n} link onTap=${() => goTo("setlists", { setlist: sid })} />`)
       : html`<${Row} title="In no setlist yet" />`}</${Group}>
   </${Detail}>`;
 }
 
 const SCREENS = {
-  setlist: {
-    title: ({ doc }) => (Object.values(doc.setlists)[0] || {}).name || "Setlist",
-    tools: (ctx) => html`<${EditTool} ...${ctx} />
-      <button class="tool icon" aria-label="Add a song" onClick=${() => {
-        const sid = Object.keys(ctx.doc.setlists)[0];
-        ctx.push({ kind: "pick", title: "Add a song", back: "Setlist", current: null,
-          options: sortedTracks(ctx.doc).map(([id, t]) => ({ value: id, label: t.name, sub: plural(t.sequence.length, "step") })),
-          onPick: (id) => { ctx.edit((d) => { d.setlists[sid].songs.push({ track: id }); }); ctx.toast("Added at the end of the setlist."); } });
-      }}>+</button>`,
-    List({ doc, edit, sel, select, editing }) {
-      const sid = Object.keys(doc.setlists)[0];
-      if (!sid) return html`<p class="lead-text">No setlist yet.</p>`;
-      let pc = 0;
-      const rows = doc.setlists[sid].songs.map((song, i) => {
-        const tr = doc.tracks[song.track];
-        const n = tr ? tr.sequence.length : 0;
-        const at = pc;
-        pc += n;
-        return { key: `${i}-${song.track}`, lead: i + 1, title: tr ? tr.name : song.track, sub: tr ? tr.sequence.join(" → ") : "missing song",
-          value: n > 1 ? `PC ${at}–${at + n - 1}` : `PC ${at}`, current: sel.index === i, onTap: () => select({ index: i }) };
-      });
-      return html`<${Group} foot=${`${plural(rows.length, "song")} · ${plural(pc, "step")}. PC n on the ES-8 recalls step n.`}>
-        <${EditableRows} rows=${rows} editing=${editing}
-          onMove=${(a, b) => { edit((d) => { d.setlists[sid].songs = moved(d.setlists[sid].songs, a, b); }); select({ index: follow(sel.index, a, b) }); }}
-          onDelete=${(i) => { edit((d) => { d.setlists[sid].songs.splice(i, 1); }); select({}); }} /></${Group}>`;
-    },
-    Detail(ctx) {
-      const sid = Object.keys(ctx.doc.setlists)[0];
-      const song = sid && ctx.doc.setlists[sid].songs[ctx.sel.index];
-      if (!song) return html`<${Empty} text="Choose a song in the setlist." />`;
-      return songDetail(ctx, song.track, html`<${Group}>
-        <${Row} cls="action" title="Play it again later in the set" onTap=${() => ctx.edit((d) => { d.setlists[sid].songs.splice(ctx.sel.index + 1, 0, { ...song }); })} />
-        <${Row} cls="danger" title="Remove from the setlist" onTap=${() => { ctx.edit((d) => { d.setlists[sid].songs.splice(ctx.sel.index, 1); }); ctx.select({}); }} />
-      </${Group}>`);
-    },
-  },
-
   songs: {
     title: () => "Songs",
     tools: (ctx) => html`<button class="tool icon" aria-label="New song" onClick=${() => {
@@ -382,7 +362,7 @@ const SCREENS = {
           <${EditableRows} editing=${editing}
             rows=${rig.snapshots.map((sn, i) => {
               const midi = Object.values(sn.params || {}).filter((v) => v && v !== "off").length;
-              return { key: `${i}-${sn.name}`, lead: patchOf(rig, i), title: sn.name, link: true,
+              return { key: `${i}-${sn.name}`, lead: patchOf(rig, i), title: sn.name, link: true, value: isFavorite(doc, rid, sn.name) ? "★" : null,
                 sub: [(sn.loops || []).join(" ") || "no loop", midi ? `${midi} MIDI` : ""].filter(Boolean).join(" · "),
                 current: sel.index === i && (sel.rig || ids[0]) === rid, onTap: () => select({ rig: rid, index: i }) };
             })}
@@ -404,8 +384,14 @@ const SCREENS = {
           const old = d.rigs[rid].snapshots[i].name;
           d.rigs[rid].snapshots[i].name = v;
           Object.values(d.tracks).forEach((t) => { if (t.rig === rid) t.sequence = t.sequence.map((n) => (n === old ? v : n)); });
+          (d.favorites || []).forEach((f) => { if (f.rig === rid && f.sound === old) f.sound = v; });
         })} />
-          <${Row} title="ES-8 patch" value=${patchOf(rig, i)} /></${Group}>
+          <${Row} title="ES-8 patch" value=${patchOf(rig, i)} />
+          <${Row} title="★ Favorite" sub="On the Companion's home page, one touch away.">
+            <${Switch} on=${isFavorite(doc, rid, sn.name)} onChange=${(v) => edit((d) => {
+              const rest = (d.favorites || []).filter((f) => !(f.rig === rid && f.sound === sn.name));
+              d.favorites = v ? [...rest, { rig: rid, sound: sn.name }] : rest;
+            })} /></${Row}></${Group}>
         <${Group} title="Loops" foot="The loops of this rig's signal chain, in order.">
           ${(rig.chain || []).map((l) => {
             const on = (sn.loops || []).includes(l);
@@ -546,5 +532,96 @@ const SCREENS = {
     },
   },
 };
+
+// ================================================================= setlists et favoris
+
+/** Tous les sons du set, groupés par rig : pour choisir un favori. */
+const soundOptions = (doc) => Object.entries(doc.rigs).flatMap(([rid, rig]) => rig.snapshots.map((sn, i) => ({
+  value: `${rid}\u0000${sn.name}`, label: sn.name, sub: `${rig.name} · ${patchOf(rig, i)}`, rid, name: sn.name })));
+
+const SETLISTS = {
+  title: () => "Setlists & favorites",
+  tools: (ctx) => html`<${EditTool} ...${ctx} />
+    <button class="tool icon" aria-label="New setlist" onClick=${() => {
+      const used = new Set(Object.values(ctx.doc.setlists || {}).map((s) => s.midi_bank));
+      let bank = 0; while (used.has(bank)) bank += 1;
+      if (bank >= MIDI_BANKS) { ctx.toast(`The ES-8 follows ${MIDI_BANKS} setlists at most for now.`); return; }
+      let id = "";
+      ctx.edit((d) => { d.setlists = d.setlists || {}; id = newId(d.setlists, "setlist"); d.setlists[id] = { schema: "es8ctl.setlist/1", name: "New setlist", midi_bank: bank, songs: [] }; });
+      setTimeout(() => ctx.select({ setlist: id }), 0);
+    }}>+</button>`,
+  List({ doc, edit, sel, select, editing }) {
+    const ids = setlistIds(doc);
+    return html`
+      <${Group} title="Companion home page">
+        <${Row} title="★ Favorites" sub="Sounds one touch away, outside any setlist" value=${favorites(doc).length} link
+          current=${!!sel.favorites} onTap=${() => select({ favorites: true })} />
+      </${Group}>
+      <${Group} title="Setlists" foot=${ids.length ? "Touch a setlist to see its songs." : "No setlist yet: + creates one."}>
+        <${EditableRows} editing=${editing}
+          rows=${ids.map((sid) => {
+            const sl = doc.setlists[sid];
+            const steps = sl.songs.reduce((n, x) => n + ((doc.tracks[x.track] || { sequence: [] }).sequence.length), 0);
+            return { key: sid, title: sl.name, sub: `${plural(sl.songs.length, "song")} · ${plural(steps, "step")}`, link: true,
+              current: sel.setlist === sid, onTap: () => select({ setlist: sid }) };
+          })}
+          onDelete=${(i) => { edit((d) => { delete d.setlists[ids[i]]; }); select({}); }} />
+      </${Group}>`;
+  },
+  Detail(ctx) {
+    if (ctx.sel.favorites) return html`<${FavoritesDetail} ...${ctx} />`;
+    const sl = ctx.sel.setlist && (ctx.doc.setlists || {})[ctx.sel.setlist];
+    if (!sl) return html`<${Empty} text="Choose a setlist, or the favorites." />`;
+    return html`<${SetlistDetail} ...${ctx} sid=${ctx.sel.setlist} sl=${sl} />`;
+  },
+};
+
+function SetlistDetail({ doc, edit, push, goTo, select, sid, sl }) {
+  const [editSongs, setEditSongs] = useState(false);
+  let pc = 0;
+  const rows = sl.songs.map((song, i) => {
+    const tr = doc.tracks[song.track];
+    const n = tr ? tr.sequence.length : 0;
+    const at = pc;
+    pc += n;
+    return { key: `${i}-${song.track}`, lead: i + 1, title: tr ? tr.name : song.track, sub: tr ? tr.sequence.join(" → ") : "missing song",
+      value: n > 1 ? `PC ${at}–${at + n - 1}` : `PC ${at}`, link: true, onTap: () => goTo("songs", { track: song.track }) };
+  });
+  return html`<${Detail} title=${sl.name}>
+    <${Group}><${NameRow} value=${sl.name} onChange=${(v) => edit((d) => { d.setlists[sid].name = v; })} /></${Group}>
+    <${Group} title="Songs, in the order of the gig" foot=${`${plural(rows.length, "song")} · ${plural(pc, "step")}. A song can come back later in the set.`}
+      tools=${html`<button class="tool" style="color:var(--accent);min-height:36px;text-transform:none;letter-spacing:0;font-size:15px" onClick=${() => setEditSongs(!editSongs)}>${editSongs ? "Done" : "Edit"}</button>`}>
+      <${EditableRows} rows=${rows} editing=${editSongs}
+        onMove=${(a, b) => edit((d) => { d.setlists[sid].songs = moved(d.setlists[sid].songs, a, b); })}
+        onDelete=${(i) => edit((d) => { d.setlists[sid].songs.splice(i, 1); })} />
+    </${Group}>
+    <${Group}><${Row} cls="action" title="+ Add a song" onTap=${() => push({ kind: "pick", title: "Add a song", back: sl.name, current: null,
+      options: sortedTracks(doc).map(([id, t]) => ({ value: id, label: t.name, sub: plural(t.sequence.length, "step") })),
+      onPick: (id) => edit((d) => { d.setlists[sid].songs.push({ track: id }); }) })} /></${Group}>
+    <${Group}><${Row} cls="danger" title="Delete setlist" onTap=${() => { edit((d) => { delete d.setlists[sid]; }); select({}); }} /></${Group}>
+  </${Detail}>`;
+}
+
+function FavoritesDetail({ doc, edit, push, goTo }) {
+  const [editFavs, setEditFavs] = useState(false);
+  const favs = favorites(doc);
+  const where = (f) => { const rig = doc.rigs[f.rig]; const i = rig ? rig.snapshots.findIndex((s) => s.name === f.sound) : -1; return [rig, i]; };
+  return html`<${Detail} title="★ Favorites">
+    <${Group} title="In the order of the home page" foot="Touching a favorite on the Companion recalls its patch at once; the setlist keeps its place."
+      tools=${html`<button class="tool" style="color:var(--accent);min-height:36px;text-transform:none;letter-spacing:0;font-size:15px" onClick=${() => setEditFavs(!editFavs)}>${editFavs ? "Done" : "Edit"}</button>`}>
+      ${favs.length ? html`<${EditableRows} editing=${editFavs}
+        rows=${favs.map((f, i) => { const [rig, k] = where(f); return { key: `${f.rig}-${f.sound}`, lead: i + 1, title: f.sound,
+          sub: rig ? rig.name : "missing rig", value: rig && k >= 0 ? patchOf(rig, k) : "?", link: true,
+          onTap: () => goTo("sounds", { rig: f.rig, index: k }) }; })}
+        onMove=${(a, b) => edit((d) => { d.favorites = moved(d.favorites, a, b); })}
+        onDelete=${(i) => edit((d) => { d.favorites.splice(i, 1); })} />` : html`<${Row} title="No favorite yet" />`}
+    </${Group}>
+    <${Group}><${Row} cls="action" title="+ Add a favorite" onTap=${() => push({ kind: "pick", title: "Add a favorite", back: "Favorites", current: null,
+      options: soundOptions(doc).filter((o) => !isFavorite(doc, o.rid, o.name)),
+      onPick: (v) => { const [rid, name] = v.split("\u0000"); edit((d) => { d.favorites = [...(d.favorites || []), { rig: rid, sound: name }]; }); } })} /></${Group}>
+  </${Detail}>`;
+}
+
+SCREENS.setlists = SETLISTS;
 
 render(html`<${App} />`, document.getElementById("root"));

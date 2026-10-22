@@ -563,6 +563,7 @@ class Project:
     rig_ids: dict[str, Rig] | None = None  # document projet : id → rig
     tracks: dict[str, dict] | None = None  # document projet : id → morceau
     companion: dict = field(default_factory=lambda: dict(DEFAULT_COMPANION))  # canal et CC des switches `companion`
+    favorites: list[tuple[Rig, str]] = field(default_factory=list)  # sons favoris, dans l'ordre de l'accueil
 
     def place(self, rig: Rig, where: str) -> None:
         """Range un rig à son premier patch ; refuse deux rigs sur les mêmes patchs."""
@@ -674,8 +675,10 @@ def project_from_doc(doc: dict, where: str = "project") -> Project:
     {"schema": "es8ctl.project/1", "pedalboard": {...},
      "surfaces": {"lead": {...}}, "rigs": {"crunch": {..., "surface": "lead"}},
      "tracks": {"song-a": {..., "rig": "crunch", "sequence": ["Verse", "Chorus"]}},
-     "setlists": {"november": {..., "midi_bank": 1, "songs": [{"track": "song-a"}]}}}
+     "setlists": {"november": {..., "midi_bank": 1, "songs": [{"track": "song-a"}]}},
+     "favorites": [{"rig": "crunch", "sound": "Solo"}]}
     ```
+    Favoris : des sons (snapshots) à rappeler d'un geste sur l'accueil de la Companion, hors setlist.
     """
     problems = _check_schema(doc, PROJECT_SCHEMA, where)
     if problems:
@@ -704,6 +707,13 @@ def project_from_doc(doc: dict, where: str = "project") -> Project:
         if bank in project.setlists:
             raise ModelError(f"setlist {lid!r}", [f"MIDI bank {bank} is already used by another setlist."])
         project.setlists[bank] = (None, setlist)
+    favorites = doc.get("favorites") or []
+    if not isinstance(favorites, list):
+        raise ModelError(where, ['"favorites": expected a list.'])
+    for fav in favorites:  # un favori dont le son a disparu (renommé, supprimé) est oublié, pas refusé
+        rig = project.rig_ids.get(fav.get("rig")) if isinstance(fav, dict) else None
+        if rig is not None and fav.get("sound") in [s["name"] for s in rig.doc["snapshots"]]:
+            project.favorites.append((rig, fav["sound"]))
     project.check_backups()
     return project
 

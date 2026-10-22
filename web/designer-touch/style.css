@@ -53,6 +53,7 @@ input { font: inherit; color: inherit; }
 .status { display: flex; align-items: center; gap: 8px; font-size: 15px; color: var(--muted); }
 .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--muted); flex: none; }
 .dot.ok { background: var(--ok); } .dot.warn { background: var(--pending); } .dot.bad { background: var(--bad); }
+.save { min-height: 52px; border-radius: 12px; background: var(--accent); color: #fff; font-weight: 700; font-size: 17px; text-align: center; }
 .send { min-height: 52px; border-radius: 12px; background: var(--pending); color: #1a1205; font-weight: 700; font-size: 17px; text-align: center; }
 .proto { font-size: 13px; color: #f6d79a; line-height: 1.35; }
 .proto button, .proto a { color: inherit; text-decoration: underline; }

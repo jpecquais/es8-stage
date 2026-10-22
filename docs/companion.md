@@ -226,6 +226,14 @@ Dans le Designer, une surface donne un rôle à chaque switch. Deux familles :
 
 `/` (la racine de l'hôte) ouvre la Companion.
 
+- **Accueil** (2026-10-22, l'écran d'ouverture ; bouton maison dans la barre
+  de scène) : les **favoris** en haut, de gros pavés, un toucher rappelle le
+  son (commande de sélection de l'ES-8, hors setlist ; la setlist garde sa
+  place et le prochain pas joué efface le favori) ; puis les **setlists** en
+  liste : celle en cours y retourne sans rien envoyer (ou rejoue son pas
+  après un favori), une autre démarre à son premier pas. Les favoris sont
+  des sons du projet (`favorites: [{rig, sound}]`), marqués d'une étoile
+  dans le Designer ; le show les porte (`favorites: [{name, rig, label}]`).
 - **Stage** : morceau (le titre ouvre la liste des morceaux), déroulé, cartes
   Previous / Now / Next, gros boutons. Panneau : morceau suivant, **switches
   de l'ES-8 avec leur état** (allumé / éteint) et leur nom dans ce rig, ordre

@@ -176,6 +176,8 @@ def export_show(project: Project, exported: str | None = None) -> dict:
     setlists, used = [], {}
     for midi_bank, (path, setlist) in sorted(project.setlists.items()):
         songs, steps = setlist_steps(project, setlist, path)
+        if not steps:
+            continue  # setlist encore vide (créée dans le Designer) : rien à jouer
         firsts: dict[int, int] = {}
         for i, step in enumerate(steps):
             firsts.setdefault(step.song, i)
@@ -214,4 +216,10 @@ def export_show(project: Project, exported: str | None = None) -> dict:
     preset = _input_preset([rig for _, rig in sorted(used.items())], project.companion)
     if preset:
         show["input_preset"] = preset
+    if project.favorites:  # rappelés directement par leur patch (pas par la pc_map)
+        show["favorites"] = [
+            {"name": sound, "rig": rig.doc["name"],
+             "label": patch_label(rig.patch([s["name"] for s in rig.doc["snapshots"]].index(sound)))}
+            for rig, sound in project.favorites
+        ]
     return show

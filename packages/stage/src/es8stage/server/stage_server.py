@@ -447,7 +447,7 @@ class StageServer:
             return self.set_edit(bool(cmd.get("on")))
         if kind == "check":
             return self.check()
-        if self.edit and kind in ("act", "press", "goto", "resend"):
+        if self.edit and kind in ("act", "press", "goto", "resend", "favorite"):
             return  # mode édition : la scène est en pause
         with self.lock:
             if kind == "act":
@@ -456,6 +456,8 @@ class StageServer:
                 self.stage.press(str(cmd.get("key")), bool(cmd.get("down")), "screen")
             elif kind == "goto":
                 self.stage.goto(int(cmd.get("setlist", 0)), int(cmd.get("step", 0)))
+            elif kind == "favorite":
+                self.stage.play_favorite(int(cmd.get("index", -1)))
             elif kind == "resend":
                 self.stage.send_step()
                 self.stage.traffic.update({"in": "screen", "action": "Resend"})

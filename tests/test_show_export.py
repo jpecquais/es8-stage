@@ -182,3 +182,23 @@ def test_switch_groups_and_selector_steps_reach_the_show():
     doc["surfaces"]["lead"]["switches"]["NUM2"]["value"] = 200
     with pytest.raises(ModelError, match="NUM2.value: expected 0-127"):
         project_from_doc(doc)
+
+
+def test_favorites_reach_the_show_and_are_recalled_by_their_patch():
+    """Favoris : des sons rappelés d'un geste hors setlist, par la commande de sélection de l'ES-8."""
+    from es8core.live import select
+    from es8stage import stage as P
+
+    doc = companion_doc()
+    doc["favorites"] = [{"rig": "crunch", "sound": "Chorus"}, {"rig": "crunch", "sound": "Intro"}]
+    show = export_show(project_from_doc(doc))
+    assert show["favorites"] == [{"name": "Chorus", "rig": "Crunch Lead", "label": "12-2"},
+                                 {"name": "Intro", "rig": "Crunch Lead", "label": "12-1"}]
+    st = P.Stage()
+    st.load(show)
+    assert st.play_favorite(0) == [list(m) for m in select("12-2").messages]
+    assert st.snapshot()["favorite"] == 0 and st.pos["step"] == 0  # la setlist garde sa place
+    st.act("next")
+    assert st.favorite is None
+    doc["favorites"] = [{"rig": "crunch", "sound": "Nope"}, {"rig": "gone", "sound": "Intro"}]
+    assert "favorites" not in export_show(project_from_doc(doc))  # sons disparus : oubliés

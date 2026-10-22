@@ -24,6 +24,7 @@ function saveStore(data) {
 const ICONS = {
   left: "M15 18l-6-6 6-6", right: "M9 18l6-6-6-6", down: "M6 9l6 6 6-6", close: "M18 6L6 18M6 6l12 12",
   list: "M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01", menu: "M4 6h16M4 12h16M4 18h16",
+  home: "M3 11l9-8 9 8M5 9v11h5v-6h4v6h5V9",
 };
 const Icon = ({ name, size = 20 }) => html`
   <svg width=${size} height=${size} viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"
@@ -91,7 +92,7 @@ function App() {
   const [prefs, setPrefs] = useState({ ...DEFAULT_PREFS, ...boot.current.prefs });
   const [keys, setKeys] = useState(boot.current.keys || S.DEFAULT_KEY_BINDINGS);
   const [move, setMove] = useState({ n: 0, dir: "" }); // dernier déplacement (animation de la vue Switches)
-  const [screen, setScreen] = useState("stage");
+  const [screen, setScreen] = useState("home"); // home | stage | setlists | menu
   const [songsOpen, setSongsOpen] = useState(false);
   const [browse, setBrowse] = useState(null);
   const [learning, setLearning] = useState(null);
@@ -168,21 +169,22 @@ function App() {
   useEffect(() => {
     const v = new URLSearchParams(location.search).get("view");
     if (v === "songs") setSongsOpen(true);
-    else if (v === "setlists" || v === "menu") setScreen(v);
+    else if (v === "setlists" || v === "menu" || v === "stage") setScreen(v);
   }, []);
 
   // Le bandeau des applis : sur le menu et l'attente, pas sur les écrans de scène.
-  const onStage = !!(snap && snap.show) && screen !== "menu";
+  const onStage = !!(snap && snap.show) && screen !== "menu" && screen !== "home";
   useEffect(() => setNavHidden(onStage), [onStage]);
 
   if (!snap) return html`<${NoHost} link=${link} />`;
   const ctx = {
     snap, show: snap.show, pos: snap.pos, states: snap.states || {}, backup: !!snap.backup,
     traffic: snap.traffic || { in: "", action: "", out: "" }, link, move, prefs, setPref, keys, setKeys, learning, setLearning,
-    act, goTo, resend: () => post({ type: "resend" }), press: (key, down) => post({ type: "press", key, down }),
+    act, goTo, favorite: (index) => post({ type: "favorite", index }), resend: () => post({ type: "resend" }), press: (key, down) => post({ type: "press", key, down }),
     setScreen, songsOpen, setSongsOpen, browse, setBrowse, awake,
   };
   if (screen === "menu" || !snap.show) return html`<${Menu} ...${ctx} />`;
+  if (screen === "home") return html`<${Home} ...${ctx} />`;
   if (screen === "setlists") return html`<${Setlists} ...${ctx} />`;
   if (prefs.view === "switches") return html`<${SwitchStage} ...${ctx} />`;
   return html`<${Stage} ...${ctx} />`;
@@ -290,6 +292,7 @@ function StatusBar({ snap, show, pos, traffic, setScreen, backup, act, prefs, se
   const sl = show.setlists[pos.setlist];
   return html`
     <header class="bar">
+      <button class="icon-btn" aria-label="Home" onClick=${() => setScreen("home")}><${Icon} name="home" /></button>
       <button class="bar-title" onClick=${() => setScreen("setlists")}>
         <span class="eyebrow">Setlist</span><span class="bar-name">${sl.name}</span>
       </button>
@@ -428,6 +431,52 @@ function SongList({ show, pos, goTo, setSongsOpen, setScreen, v }) {
             </button></li>`)}
         </ol>
       </section>
+    </div>`;
+}
+
+// ---------------------------------------------------------------- accueil
+
+/**
+ * L'accueil : les sons favoris, rappelés d'un geste (jam, réglage, balance), puis les setlists.
+ * Toucher la setlist en cours y retourne sans rien envoyer ; une autre la démarre à son premier pas.
+ */
+function Home({ snap, show, pos, goTo, favorite, setScreen, link }) {
+  const favs = show.favorites || [];
+  const playingFav = snap.favorite;
+  const open = (k) => {
+    if (k !== pos.setlist || playingFav != null) goTo({ setlist: k, step: k === pos.setlist ? pos.step : 0 });
+    setScreen("stage");
+  };
+  return html`
+    <div class="app page home">
+      <header class="bar">
+        <h1 class="page-title">ES8 Stage</h1>
+        <span class="spacer"></span>
+        ${link === "ok" ? html`<${ES8Chip} snap=${snap} setScreen=${setScreen} />` : html`<span class="chip"><span class="dot bad"></span><span class="chip-text">Host lost</span></span>`}
+        <button class="icon-btn" aria-label="Menu" onClick=${() => setScreen("menu")}><${Icon} name="menu" /></button>
+      </header>
+      <div class="page-body">
+        <${Banners} snap=${snap} link=${link} setScreen=${setScreen} />
+        <section class="home-group">
+          <h2 class="eyebrow">Favorites</h2>
+          ${favs.length ? html`<div class="favs">${favs.map((f, i) => html`
+            <button class=${`fav ${playingFav === i ? "current" : ""}`} aria-pressed=${playingFav === i} onClick=${() => favorite(i)}>
+              <span class="fav-name">${f.name}</span><span class="small">${f.rig} · ${f.label}</span></button>`)}</div>`
+          : html`<p class="muted">No favorites yet. In ES8 Designer, star the sounds you want here.</p>`}
+        </section>
+        <section class="home-group">
+          <h2 class="eyebrow">Setlists</h2>
+          <div class="rows">${show.setlists.map((sl, k) => {
+            const here = k === pos.setlist;
+            const step = here ? sl.steps[pos.step] : null;
+            return html`<button class=${`home-row ${here && playingFav == null ? "current" : ""}`} disabled=${!S.isPlayable(sl)} onClick=${() => open(k)}>
+              <span class="song-text"><span class="song-name">${sl.name}</span>
+                <span class="small muted">${sl.songs.length} song${sl.songs.length === 1 ? "" : "s"}${step
+                  ? ` · now: ${sl.songs[step.song].name}, ${step.snapshot}` : ""}</span></span>
+              <${Icon} name="right" /></button>`;
+          })}</div>
+        </section>
+      </div>
     </div>`;
 }
 

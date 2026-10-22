@@ -1262,6 +1262,7 @@ function SnapshotMatrix({ s, rig, rid, pb, edit, short }) {
     Object.values(d.tracks || {}).forEach((t) => {
       if (t.rig === rid) t.sequence = t.sequence.map((n) => (n === old ? name : n));
     });
+    (d.favorites || []).forEach((f) => { if (f.rig === rid && f.sound === old) f.sound = name; });
     Object.values(d.rigs).forEach((o) => {
       if (o.backup === rid) o.snapshots.forEach((sn) => { if (sn.backup === old) sn.backup = name; });
     });

@@ -6,7 +6,9 @@ switches, et décider quoi envoyer. Les deux implémentations sont vérifiées
 sur les mêmes cas (`tests/test_stage.py`) pour ne pas diverger.
 
 Position : {"setlist": k, "step": i} ; le pas i se joue en envoyant le PC i
-(précédé de Bank Select CC0 = banque MIDI de la setlist).
+(précédé de Bank Select CC0 = banque MIDI de la setlist). Un favori (`show.favorites`) se joue
+hors setlist : son patch est rappelé directement (commande de sélection de l'ES-8) ; la position
+dans la setlist ne bouge pas et le prochain pas joué l'efface.
 """
 
 from __future__ import annotations
@@ -173,10 +175,12 @@ class Stage:
         self.move = {"n": 0, "dir": ""}
         self.channel = 0  # 0 = celui du show
         self.sent_ok = True
+        self.favorite: int | None = None  # favori joué (indice dans show.favorites), sinon la setlist
 
     # ---------------------------------------------------------------- show et position
     def load(self, show: dict, pos=None) -> None:
         self.show = show
+        self.favorite = None
         self.pos = valid_position(show, pos)
         self.states = start_states(show, self.pos)
         self.changed()
@@ -190,6 +194,7 @@ class Stage:
         return messages
 
     def send_step(self) -> list[list[int]]:
+        self.favorite = None
         sl = self.show["setlists"][self.pos["setlist"]]
         play = played(sl["steps"][self.pos["step"]], self.pos["step"], self.backup)
         sent = self._emit(step_messages(self.es8_channel(), sl["midi_bank"], play["pc"]))
@@ -233,6 +238,21 @@ class Stage:
         self.changed()
         return sent
 
+    def play_favorite(self, index: int) -> list[list[int]]:
+        """Rappelle le patch d'un favori (mode éditeur, sélection, fin du mode éditeur)."""
+        favorites = (self.show or {}).get("favorites") or []
+        if not 0 <= index < len(favorites):
+            return []
+        from es8core.live import select
+
+        fav = favorites[index]
+        sent = self._emit([list(m) for m in select(fav["label"]).messages])
+        self.favorite = index
+        self.traffic = {"in": "screen", "action": f"Favorite · {fav['name']}",
+                        "out": f"patch {fav['label']}" if self.sent_ok else "not sent: ES-8 not connected"}
+        self.changed()
+        return sent
+
     def press(self, key: str, down: bool, source: str | None = None) -> list[list[int]]:
         if not self.show:
             return []
@@ -259,4 +279,4 @@ class Stage:
     def snapshot(self) -> dict:
         """Ce que les écrans affichent."""
         return {"show": self.show, "pos": self.pos, "states": self.states, "backup": self.backup,
-                "traffic": self.traffic, "move": self.move, "channel": self.es8_channel()}
+                "traffic": self.traffic, "move": self.move, "channel": self.es8_channel(), "favorite": self.favorite}

@@ -1,7 +1,8 @@
 # ES8 Designer au doigt : structure et choix d'interface
 
-Prototype : `web/designer-touch/` (servi en `/designer-touch/`). Il lit le set
-joué par l'hôte de scène et n'enregistre rien.
+Prototype : `web/designer-touch/` (servi en `/designer-touch/`). Il ouvre le
+set joué par l'hôte de scène ; « Save » l'enregistre dans la bibliothèque
+(« Send to stage » reste dans le Designer habituel).
 
 ## Ce qu'on construit
 
@@ -52,8 +53,11 @@ Deux natures de données :
 
 ## Choix retenus
 
-1. **Trois colonnes en paysage** : rubriques (Setlist, Morceaux, Sons,
-   Footswitches, Pédalier) · liste · détail. En portrait, la barre de rubriques
+1. **Trois colonnes en paysage** : rubriques dans l'ordre où l'on construit
+   (Pédalier, Footswitches, Sons, Morceaux, Setlists et favoris) · liste ·
+   détail. « Setlists » liste toutes les setlists (+ en crée une) et les
+   favoris, l'accueil de la Companion ; une étoile sur un son le met en
+   favori. En portrait, la barre de rubriques
    se replie derrière un bouton ; liste et détail restent côte à côte.
 2. **Des listes, pas des cartes**, pour toute collection : lignes de 56 px,
    numéro ou patch à gauche, nom, résumé discret, chevron.
