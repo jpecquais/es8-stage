@@ -189,3 +189,12 @@ input { font: inherit; color: inherit; }
 .compare { min-height: 46px; border-radius: 12px; border: 1px solid var(--pending); color: var(--pending); font-weight: 700; font-size: 16px; text-align: center; }
 .toolbar .sendbox { display: flex; gap: 8px; align-items: center; }
 .toolbar .sendbox .compare, .toolbar .sendbox .send { padding: 0 14px; }
+
+/* Annuler, rétablir */
+.undoredo { display: inline-flex; gap: 4px; }
+.undoredo button { width: 46px; min-height: 46px; border-radius: 10px; background: var(--raised); font-size: 22px; font-weight: 700; text-align: center; }
+.side-foot .undo { justify-self: start; min-height: 32px; padding: 0; text-decoration: underline; font-size: 14px; }
+
+/* Notes d'un morceau */
+.row textarea.notes { flex: 1; min-height: 84px; border: 0; background: none; outline: none; resize: vertical; color: var(--ink);
+  font: inherit; font-size: 16px; line-height: 1.35; padding: 4px 0; }

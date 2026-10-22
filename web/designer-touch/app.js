@@ -246,6 +246,8 @@ export function App({ shell, target, nonce } = {}) {
 
   const cur = useRef({});
   cur.current = { doc, loaded };
+  // Annuler pas à pas : les versions précédentes du set ; des changements à moins d'une seconde font un pas.
+  const undo = useRef({ past: [], future: [], at: 0 });
   const open = async () => {
     try {
       const listing = await (await fetch("../library/", { cache: "no-store" })).json();
@@ -255,6 +257,7 @@ export function App({ shell, target, nonce } = {}) {
       const d = normalize(await res.json());
       setLoaded({ name, doc: d, etag: (res.headers.get("ETag") || "").replace(/"/g, "") || null });
       setDoc(clone(d));
+      undo.current = { past: [], future: [], at: 0 };
       setError("");
     } catch (err) { setError(err.message || String(err)); }
   };
@@ -292,6 +295,22 @@ export function App({ shell, target, nonce } = {}) {
     setSideOpen(false);
   }, [nonce, loaded && loaded.name]);
 
+  // ⌘Z / ⇧⌘Z (Ctrl ailleurs) hors champ texte (le champ annule sa frappe lui-même) ; pas pendant le jeu.
+  const keys = useRef({});
+  useEffect(() => {
+    const onKey = (e) => {
+      if (!(e.metaKey || e.ctrlKey) || e.altKey || e.key.toLowerCase() !== "z") return;
+      if (shell && shell.playing()) return;
+      const t = e.composedPath ? e.composedPath()[0] : e.target;
+      if (t.closest && t.closest("input, textarea")) return;
+      e.preventDefault();
+      if (e.shiftKey) keys.current.stepForward && keys.current.stepForward();
+      else keys.current.stepBack && keys.current.stepBack();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
   // Fin d'un envoi à l'ES-8 lancé d'ici : le dire.
   const job = snap && snap.job;
   const mine = useRef(false);
@@ -309,7 +328,22 @@ export function App({ shell, target, nonce } = {}) {
   if (!doc) return html`<div class="loading">Loading the set…</div>`;
 
   const toast = (t, ms = 2600) => { setMsg(t); clearTimeout(toastTimer); toastTimer = setTimeout(() => setMsg(""), ms); };
-  const edit = (fn) => setDoc((d) => { const next = clone(d); fn(next); return next; });
+  const remember = (d, merge) => {
+    const u = undo.current;
+    const now = Date.now();
+    if (!(merge && now - u.at < 1000 && u.past.length)) u.past = [...u.past.slice(-199), d];
+    u.future = [];
+    u.at = merge ? now : 0;
+  };
+  const edit = (fn) => setDoc((d) => { const next = clone(d); fn(next); remember(d, true); return next; });
+  /** Remplace tout le set (Undo all, une version restaurée) : un pas qu'on peut annuler. */
+  const replaceDoc = (next) => { remember(doc, false); setDoc(next); };
+  const stepBack = () => { const u = undo.current; if (!u.past.length) return; u.future = [...u.future, doc]; u.at = 0; setDoc(u.past[u.past.length - 1]); u.past = u.past.slice(0, -1); };
+  const stepForward = () => { const u = undo.current; if (!u.future.length) return; u.past = [...u.past, doc]; u.at = 0; setDoc(u.future[u.future.length - 1]); u.future = u.future.slice(0, -1); };
+  keys.current = { stepBack, stepForward };
+  const UndoRedo = () => html`<span class="undoredo">
+    <button aria-label="Undo" title="Undo (⌘Z)" disabled=${!undo.current.past.length} onClick=${stepBack}>↶</button>
+    <button aria-label="Redo" title="Redo (⇧⌘Z)" disabled=${!undo.current.future.length} onClick=${stepForward}>↷</button></span>`;
   const select = (patch) => { setSel((s) => ({ ...s, [section]: patch })); setStack([]); };
   const goTo = (sec, patch) => { setSection(sec); setSel((s) => ({ ...s, [sec]: patch })); setStack([]); setEditing(false); setSideOpen(false); };
   const push = (frame) => setStack((s) => [...s, frame]);
@@ -355,7 +389,7 @@ export function App({ shell, target, nonce } = {}) {
     body: JSON.stringify({ type: "cc", channel, cc, value }) }).catch(() => {});
   const playing = playingSound(snap, doc);
   const ctx = { doc, edit, sel: sel[section] || {}, select, goTo, push, pop, editing, setEditing, toast, diff, playing, hear, send,
-    connected, jobBusy, setName: loaded.name, setDoc, setStack };
+    connected, jobBusy, setName: loaded.name, setDoc: replaceDoc, setStack };
 
   const [dot, text] = snap ? es8Status(snap) : ["", "ES-8"];
   const counts = { setlists: Object.keys(doc.setlists || {}).length, songs: Object.keys(doc.tracks).length,
@@ -379,8 +413,10 @@ export function App({ shell, target, nonce } = {}) {
         <div class="side-foot">
           <span class="status"><span class=${`dot ${dot}`}></span>${text}</span>
           ${snap ? html`<${SendBox} diff=${diff} job=${job} connected=${connected} changed=${changed} send=${send} />` : null}
-          ${changed ? html`<div class="save-row"><button class="save" disabled=${saving} onClick=${saveHere}>${saving ? "Saving…" : "Save"}</button>
-            <button class="undo" onClick=${() => { setDoc(clone(loaded.doc)); setStack([]); }}>Undo all</button></div>` : null}
+          ${changed || undo.current.past.length || undo.current.future.length ? html`<div class="save-row">
+            ${changed ? html`<button class="save" disabled=${saving} onClick=${saveHere}>${saving ? "Saving…" : "Save"}</button>` : html`<span></span>`}
+            <${UndoRedo} /></div>` : null}
+          ${changed ? html`<button class="undo" onClick=${() => { replaceDoc(clone(loaded.doc)); setStack([]); }}>Undo all changes since saved</button>` : null}
         </div>
       </aside>
       <section class="col list">
@@ -393,6 +429,7 @@ export function App({ shell, target, nonce } = {}) {
         <div class="scroll"><${S.List} ...${ctx} /></div>
         <div class="toolbar">
           ${snap ? html`<${SendBox} diff=${diff} job=${job} connected=${connected} changed=${changed} send=${send} />` : null}
+          ${undo.current.past.length || undo.current.future.length ? html`<${UndoRedo} />` : null}
           ${changed ? html`<button class="save" disabled=${saving} onClick=${saveHere}>${saving ? "Saving…" : "Save"}</button>` : null}
         </div>
       </section>
@@ -854,10 +891,23 @@ function SongSteps({ doc, edit, push, goTo, id, tr, rig, soundPick, inSets, extr
         onDelete=${tr.sequence.length > 1 ? (i) => edit((d) => { d.tracks[id].sequence.splice(i, 1); }) : null} />
     </${Group}>
     <${Group}><${Row} cls="action" title="+ Add a step" onTap=${() => soundPick("Add a step", null, (v) => edit((d) => { d.tracks[id].sequence.push(v); }))} /></${Group}>
+    <${SongInfoGroup} tr=${tr} set=${(fn) => edit((d) => fn(d.tracks[id]))} />
     ${extra}
     <${Group} title="In setlists">${inSets.length ? inSets.map(([sid, n]) => html`<${Row} title=${n} link onTap=${() => goTo("setlists", { setlist: sid })} />`)
       : html`<${Row} title="In no setlist yet" />`}</${Group}>
   </${Detail}>`;
+}
+
+/** Ce que la scène montre d'un morceau : tempo (le décompte), tonalité ou accordage, notes. */
+function SongInfoGroup({ tr, set }) {
+  const text = (k) => (e) => set((t) => { if (e.target.value) t[k] = e.target.value; else delete t[k]; });
+  return html`<${Group} title="On stage" foot="Shown under the song's name, and on the Next card before it starts. The dot beats at the tempo.">
+    <${Row} title="Tempo" sub=${tr.tempo ? "" : "None"}>
+      ${tr.tempo ? html`<${Stepper} value=${tr.tempo} min=${20} max=${300} onChange=${(n) => set((t) => { t.tempo = n; })} />` : null}
+      <${Switch} on=${!!tr.tempo} onChange=${(v) => set((t) => { if (v) t.tempo = 120; else delete t.tempo; })} /></${Row}>
+    <${Row} title="Key / tuning"><input class="text" maxlength="24" value=${tr.key || ""} placeholder="E minor, drop D…" onInput=${text("key")} /></${Row}>
+    <div class="row"><textarea class="notes" maxlength="500" rows="3" placeholder="Notes: intro, cues, capo…" value=${tr.notes || ""} onInput=${text("notes")}></textarea></div>
+  </${Group}>`;
 }
 
 const SCREENS = {

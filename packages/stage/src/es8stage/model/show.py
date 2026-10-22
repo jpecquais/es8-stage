@@ -192,6 +192,7 @@ def export_show(project: Project, exported: str | None = None) -> dict:
             "songs": [
                 {"name": song["name"], "rig": rig_ids[song["rig"].start], "first_step": firsts[k],
                  "steps": sum(1 for s in steps if s.song == k)}
+                | {key: song[key] for key in ("tempo", "key", "notes") if key in song}
                 for k, song in enumerate(songs)
             ],
             "steps": [

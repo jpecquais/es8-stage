@@ -32,6 +32,7 @@ from .schema import (
     check_pedalboard,
     check_rig,
     check_setlist,
+    song_info,
     COMPANION_ROLES,
     DEFAULT_COMPANION,
     check_surface,
@@ -322,7 +323,7 @@ def setlist_steps(project: Project, setlist: dict, setlist_path=None) -> tuple[l
         problems.append("no track yet.")
     for i, song in enumerate(setlist["songs"]):
         rig_ref, sequence, base, label = song.get("rig"), song.get("sequence"), setlist_path, f"songs[{i}]"
-        name = song.get("name")
+        name, info = song.get("name"), song_info(song)
         if "track" in song:
             found = project.track_for(song["track"], setlist_path)
             if found is None:
@@ -330,7 +331,7 @@ def setlist_steps(project: Project, setlist: dict, setlist_path=None) -> tuple[l
                 continue
             track, track_path = found
             rig_ref, sequence, label = track["rig"], track.get("sequence", []), f"track {track['name']!r}"
-            base, name = track_path or setlist_path, track["name"]
+            base, name, info = track_path or setlist_path, track["name"], song_info(track)
         rig = project.rig_for(rig_ref, base)
         if rig is None:
             problems.append(f"{label}: unknown rig {rig_ref!r}.")
@@ -349,7 +350,7 @@ def setlist_steps(project: Project, setlist: dict, setlist_path=None) -> tuple[l
                     bnames = [s["name"] for s in brig.doc["snapshots"]]
                     step.backup = (brig, bsnap, brig.patch(bnames.index(bsnap)))
                 steps.append(step)
-        songs.append({"name": name or rig.doc["name"], "rig": rig})
+        songs.append({"name": name or rig.doc["name"], "rig": rig, **info})
     backups = len(backup_pcs(steps))
     if len(steps) + backups > PC_MAP_ENTRIES:
         problems.append(f"{len(steps)} steps and {backups} backup patches, {PC_MAP_ENTRIES} at most per setlist.")

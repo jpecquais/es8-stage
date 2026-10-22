@@ -202,3 +202,22 @@ def test_favorites_reach_the_show_and_are_recalled_by_their_patch():
     assert st.favorite is None
     doc["favorites"] = [{"rig": "crunch", "sound": "Nope"}, {"rig": "gone", "sound": "Intro"}]
     assert "favorites" not in export_show(project_from_doc(doc))  # sons disparus : oubliés
+
+
+def test_songs_carry_their_tempo_key_and_notes_to_the_stage():
+    """Tempo, tonalité et notes d'un morceau : montrés sur scène, sans toucher la pc_map."""
+    doc = project_doc()
+    plain = export_show(project_from_doc(doc), exported="1")
+    doc["tracks"] = {"a": {"schema": "es8ctl.track/1", "name": "Song A", "rig": "crunch", "sequence": ["Intro", "Chorus"],
+                           "tempo": 120, "key": "E minor · drop D", "notes": "Wait for drums"}}
+    doc["setlists"]["nov"]["songs"] = [{"track": "a"}, {"rig": "crunch", "sequence": ["Intro"], "tempo": 90}]
+    sl = export_show(project_from_doc(doc), exported="1")["setlists"][0]
+    assert sl["songs"][0] | {} == {"name": "Song A", "rig": "crunch", "first_step": 0, "steps": 2,
+                                   "tempo": 120, "key": "E minor · drop D", "notes": "Wait for drums"}
+    assert sl["songs"][1]["tempo"] == 90 and "key" not in sl["songs"][1]
+    doc["tracks"]["a"]["tempo"] = 7
+    doc["tracks"]["a"]["notes"] = "x" * 501
+    with pytest.raises(ModelError) as exc:
+        project_from_doc(doc)
+    assert any("tempo" in p for p in exc.value.problems) and any("notes" in p for p in exc.value.problems)
+    assert "tempo" not in plain["setlists"][0]["songs"][0]

@@ -122,3 +122,37 @@ def test_a_save_over_a_version_changed_elsewhere_asks_first(app):
     until(lambda: alert(d)).accept()  # … et la charger
     until(lambda: js(d, f"return {E}.querySelector('input.text.big')?.value") == "Changed elsewhere")
     assert json.loads(lib.read("projects", "Gig"))["setlists"]["nov"]["name"] == "Changed elsewhere"
+
+
+def test_song_info_undo_and_favorites_from_the_stage(app):
+    """Tempo et notes d'un morceau sur scène ; annuler pas à pas ; un favori joué depuis la scène, et le retour."""
+    d, host, lib = app
+    doc = json.loads(lib.read("projects", "Gig"))
+    doc["favorites"] = [{"rig": "crunch", "sound": "Chorus"}]
+    lib.write("projects", "Gig", json.dumps(doc).encode())
+    d.get(d.base + "/app/#edit")
+    until(lambda: js(d, f"return {E}?.querySelector('.nav')"))
+    js(d, f"{E}.querySelectorAll('.nav')[3].click()")  # Songs
+    js(d, f"{E}.querySelector('section.col.list .row.link').click()")
+    js(d, f"[...{E}.querySelectorAll('section.col:nth-of-type(2) .switch')].pop().click()")  # tempo 120
+    time.sleep(1.1)  # un pas d'annulation à part
+    js(d, f"const t={E}.querySelector('textarea.notes'); t.value='Wait for drums'; t.dispatchEvent(new Event('input', {{bubbles: true}}))")
+    js(d, f"{E}.querySelector('[aria-label=Undo]').click()")
+    assert js(d, f"return {E}.querySelector('textarea.notes').value") == ""
+    js(d, f"{E}.querySelector('[aria-label=Redo]').click()")
+    assert js(d, f"return {E}.querySelector('textarea.notes').value") == "Wait for drums"
+    js(d, f"{E}.querySelector('.tool.done').click()")
+    until(lambda: host.stage.show["setlists"][0]["songs"][0].get("notes") == "Wait for drums")
+    song = host.stage.show["setlists"][0]["songs"][0]
+    assert song["tempo"] == 120 and (host.stage.show.get("favorites") or [{}])[0].get("name") == "Chorus"
+    # Sur scène : le tempo, les notes ; un favori depuis la feuille ★, puis retour à la setlist
+    js(d, f"{P}.querySelector('.home-row').click()")
+    until(lambda: js(d, f"return {P}.querySelector('.song-info')"))
+    assert "120" in js(d, f"return {P}.querySelector('.song-info').textContent")
+    assert js(d, f"return {P}.querySelector('.song-notes').textContent") == "Wait for drums"
+    js(d, f"{P}.querySelector('.fav-btn').click()")
+    js(d, f"{P}.querySelector('.sheet-favs .fav').click()")
+    until(lambda: host.stage.favorite == 0)
+    until(lambda: "Favorite" in js(d, f"return {P}.querySelector('.card.now').textContent"))
+    js(d, f"{P}.querySelector('.card.now').click()")
+    until(lambda: host.stage.favorite is None)

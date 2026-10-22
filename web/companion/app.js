@@ -96,6 +96,7 @@ export function App({ shell } = {}) {
   const [move, setMove] = useState({ n: 0, dir: "" }); // dernier déplacement (animation de la vue Switches)
   const [screen, setScreen] = useState("home"); // home | stage | setlists | menu
   const [songsOpen, setSongsOpen] = useState(false);
+  const [favsOpen, setFavsOpen] = useState(false);
   const [browse, setBrowse] = useState(null);
   const [learning, setLearning] = useState(null);
   const awake = useKeepAwake(prefs.wake);
@@ -185,7 +186,7 @@ export function App({ shell } = {}) {
     snap, show: snap.show, pos: snap.pos, states: snap.states || {}, backup: !!snap.backup,
     traffic: snap.traffic || { in: "", action: "", out: "" }, link, move, prefs, setPref, keys, setKeys, learning, setLearning,
     act, goTo, favorite: (index) => post({ type: "favorite", index }), resend: () => post({ type: "resend" }), press: (key, down) => post({ type: "press", key, down }),
-    setScreen, songsOpen, setSongsOpen, browse, setBrowse, awake, shell,
+    setScreen, songsOpen, setSongsOpen, favsOpen, setFavsOpen, browse, setBrowse, awake, shell,
   };
   if (screen === "menu" || !snap.show) return html`<${Menu} ...${ctx} />`;
   if (screen === "home") return html`<${Home} ...${ctx} />`;
@@ -242,6 +243,36 @@ const EditButton = ({ shell, target, label = "Edit" }) => html`
 
 // ---------------------------------------------------------------- scène
 
+/** Tempo et tonalité d'un morceau en pastilles ; `beat` : un point qui bat au tempo (le décompte). */
+function SongInfo({ song, beat = false }) {
+  if (!song || (!song.tempo && !song.key)) return null;
+  return html`<span class="song-info">
+    ${song.tempo ? html`<span class="info-pill mono">${beat ? html`<span class="beat" style=${`animation-duration:${(60 / song.tempo).toFixed(3)}s`}></span>` : null}♩ ${song.tempo}</span>` : null}
+    ${song.key ? html`<span class="info-pill">${song.key}</span>` : null}</span>`;
+}
+
+/** Le favori qui joue (indice `snap.favorite` dans `show.favorites`), sinon null. */
+const playingFavorite = (snap, show) => (snap.favorite != null ? (show.favorites || [])[snap.favorite] || null : null);
+
+/** Les favoris en gros boutons, par-dessus la scène : un toucher le joue, la setlist garde sa place. */
+function FavSheet({ snap, show, favorite, setFavsOpen }) {
+  const favs = show.favorites || [];
+  return html`
+    <div class="overlay" onClick=${(e) => { if (e.target === e.currentTarget) setFavsOpen(false); }}>
+      <section class="sheet" role="dialog" aria-label="Favorites">
+        <div class="sheet-head">
+          <div class="grow"><span class="sheet-title">Favorites</span>
+            <span class="muted small">The setlist keeps its place: Next goes on from there.</span></div>
+          <button class="icon-btn" aria-label="Close" onClick=${() => setFavsOpen(false)}><${Icon} name="close" /></button>
+        </div>
+        <div class="favs sheet-favs">${favs.map((f, i) => html`
+          <button class=${`fav ${snap.favorite === i ? "current" : ""}`} aria-pressed=${snap.favorite === i}
+            onClick=${() => { favorite(i); setFavsOpen(false); }}>
+            <span class="fav-name">${f.name}</span><span class="small">${f.rig} · ${f.label}</span></button>`)}</div>
+      </section>
+    </div>`;
+}
+
 // Disposition de l'ES-8 : rangée du haut, puis NUM1–6 ; les prises CTL IN à part.
 const BOARD = [["MEM_M", "MUTE", "BANK_D", "BANK_U", "NUM7", "NUM8"], ["NUM1", "NUM2", "NUM3", "NUM4", "NUM5", "NUM6"]];
 const JACKS = ["CTL_IN_1", "CTL_IN_2", "CTL_IN_3", "CTL_IN_4"];
@@ -268,9 +299,10 @@ function BigSwitch({ k, sw, states, press }) {
 
 /** Vue « Switches » : la surface de l'ES-8 en grand, le morceau et les pas en bandeau. */
 function SwitchStage(ctx) {
-  const { show, pos, backup, states, press, songsOpen, setSongsOpen, move } = ctx;
+  const { snap, show, pos, backup, states, press, songsOpen, setSongsOpen, favsOpen, move } = ctx;
   const v = S.view(show, pos);
   const now = S.played(v.step, v.step.index, backup);
+  const fav = playingFavorite(snap, show);
   const sws = (v.rig.surface || {}).switches || {};
   // Bannière d'un déplacement : où l'on arrive (et le morceau s'il change), ou « fin de la setlist ».
   const back = ["prev", "prev_song"].includes(move.dir);
@@ -289,11 +321,16 @@ function SwitchStage(ctx) {
           <button class="sw-song" aria-expanded=${songsOpen} onClick=${() => setSongsOpen(true)}>
             <span class="eyebrow">Song ${v.songIndex + 1} / ${v.setlist.songs.length} · step ${v.posInSong + 1}/${v.song.steps}</span>
             <span class="sw-song-name">${v.song.name} <${Icon} name="down" size=${20} /></span>
+            <${SongInfo} song=${v.song} beat=${true} />
           </button>
-          <div class=${`sw-now ${backup ? "on-backup" : ""} ${fresh ? "pulse" : ""}`} key=${`now-${move.n}`}>
+          ${fav ? html`<button class="sw-now on-fav" onClick=${ctx.resend} title="Tap to go back to the setlist">
+              <span class="eyebrow">★ Favorite · ${fav.label}</span>
+              <span class="sw-now-name">${fav.name}</span>
+            </button>`
+          : html`<div class=${`sw-now ${backup ? "on-backup" : ""} ${fresh ? "pulse" : ""}`} key=${`now-${move.n}`}>
             <span class="eyebrow">${backup ? "Backup" : "Now"} · ${now.label}</span>
             <span class="sw-now-name">${now.snapshot}</span>
-          </div>
+          </div>`}
           <div class="sw-next">
             <span class="eyebrow">Next</span>
             <span class="sw-next-name">${v.next ? v.next.snapshot : "End of setlist"}</span>
@@ -309,10 +346,11 @@ function SwitchStage(ctx) {
           : html`<p class="muted">The rig “${v.rig.name}” has no surface.</p>`}
       </div>
       ${songsOpen && html`<${SongList} ...${ctx} v=${v} />`}
+      ${favsOpen && html`<${FavSheet} ...${ctx} />`}
     </div>`;
 }
 
-function StatusBar({ snap, show, pos, traffic, setScreen, backup, act, prefs, setPref, link, shell }) {
+function StatusBar({ snap, show, pos, traffic, setScreen, backup, act, prefs, setPref, link, shell, setFavsOpen }) {
   const sl = show.setlists[pos.setlist];
   return html`
     <header class="bar">
@@ -332,15 +370,19 @@ function StatusBar({ snap, show, pos, traffic, setScreen, backup, act, prefs, se
       ${link === "ok" ? html`<${ES8Chip} snap=${snap} setScreen=${setScreen} />` : html`<span class="chip"><span class="dot bad"></span><span class="chip-text">Host lost</span></span>`}
       <button class=${`chip backup-btn ${backup ? "on" : ""}`} aria-pressed=${backup} onClick=${() => act("backup")}
         title="Switch every step to its backup patch, or back">Backup</button>
+      ${(show.favorites || []).length ? html`<button class=${`chip fav-btn ${snap.favorite != null ? "on" : ""}`} aria-label="Favorites" onClick=${() => setFavsOpen(true)}
+        title="Play a favorite sound; the setlist keeps its place">★<span class="chip-text"> Favorites</span></button>` : null}
       ${shell ? html`<${EditButton} shell=${shell} target=${editTarget(snap, show, pos)} />` : null}
       <button class="icon-btn" aria-label="Menu" onClick=${() => setScreen("menu")}><${Icon} name="menu" /></button>
     </header>`;
 }
 
 function Stage(ctx) {
-  const { show, pos, act, resend, prefs, setPref, songsOpen, setSongsOpen, backup } = ctx;
+  const { snap, show, pos, act, resend, prefs, setPref, songsOpen, setSongsOpen, favsOpen, backup } = ctx;
   const v = S.view(show, pos);
   const now = S.played(v.step, v.step.index, backup);
+  const fav = playingFavorite(snap, show);
+  const nextSong = v.next && v.nextIsNewSong ? v.setlist.songs[v.next.song] : null;
   const meta = (st) => `PC ${st.index} · ${st.label}`;
   return html`
     <div class=${`app stage-app ${prefs.panel ? "panel-open" : "panel-closed"}`}>
@@ -354,6 +396,8 @@ function Stage(ctx) {
               <span>${v.song.name}</span><${Icon} name="down" size=${26} />
             </button>
             <span class="sub">${v.rig.name} · patch ${v.step.label} · step ${v.posInSong + 1}/${v.song.steps}</span>
+            <${SongInfo} song=${v.song} beat=${true} />
+            ${v.song.notes ? html`<p class="song-notes">${v.song.notes}</p>` : null}
           </div>
           <ol class="strip" aria-label="Song sequence">
             ${v.strip.map((st) => html`<li class=${`pill ${st.state}`}>${st.snapshot}</li>`)}
@@ -364,17 +408,24 @@ function Stage(ctx) {
               ${v.prev ? html`<span class="card-name">${v.prev.snapshot}</span><span class="mono meta">${meta(v.prev)}</span>`
                 : html`<span class="muted">Start of setlist</span>`}
             </div>
-            <button class=${`card now ${backup ? "on-backup" : ""}`} onClick=${resend} title="Tap to send this step again">
+            ${fav ? html`<button class="card now on-fav" onClick=${resend} title="Tap to go back to the setlist">
+                <span class="eyebrow">★ Favorite</span>
+                <span class="card-name">${fav.name}</span>
+                <span class="mono meta">${fav.rig} · ${fav.label} · tap to go back to “${now.snapshot}”</span>
+              </button>`
+            : html`<button class=${`card now ${backup ? "on-backup" : ""}`} onClick=${resend} title="Tap to send this step again">
               <span class="eyebrow">${backup ? (now.backup ? `Backup · ${now.rig}` : "Backup · none for this step") : "Now"}</span>
               <span class="card-name">${now.snapshot}</span>
               <span class="mono meta">${backup && now.backup ? `PC ${now.pc} · ${now.label} · instead of ${v.step.snapshot}` : meta(v.step)}</span>
-            </button>
+            </button>`}
             <div class="card next" aria-label="Next">
               <span class="eyebrow">Next</span>
               ${v.next ? html`
-                ${v.nextIsNewSong && html`<span class="badge">New song · ${v.setlist.songs[v.next.song].name}</span>`}
+                ${v.nextIsNewSong && html`<span class="badge">New song · ${nextSong.name}</span>`}
                 <span class="card-name">${v.next.snapshot}</span>
                 <span class="mono meta">${meta(v.next)}</span>
+                ${nextSong ? html`<${SongInfo} song=${nextSong} />` : null}
+                ${nextSong && nextSong.notes ? html`<span class="next-notes">${nextSong.notes}</span>` : null}
                 <span class="prev-inline muted">prev · ${v.prev ? v.prev.snapshot : "—"}</span>`
                 : html`<span class="muted">End of setlist</span>`}
             </div>
@@ -388,6 +439,7 @@ function Stage(ctx) {
               <${Icon} name="left" /><span>Switches · chain · programs</span></button>`}
       </div>
       ${songsOpen && html`<${SongList} ...${ctx} v=${v} />`}
+      ${favsOpen && html`<${FavSheet} ...${ctx} />`}
     </div>`;
 }
 
@@ -411,7 +463,8 @@ function Panel({ v, setPref, states }) {
       <section class="box">
         <span class="eyebrow">Next song</span>
         ${v.nextSong
-          ? html`<span class="box-title">${v.nextSong.name}</span>`
+          ? html`<span class="box-title">${v.nextSong.name}</span><${SongInfo} song=${v.nextSong} />
+            ${v.nextSong.notes ? html`<span class="muted small">${v.nextSong.notes}</span>` : null}`
           : html`<span class="muted">End of the setlist</span>`}
       </section>
       <section class="box">
@@ -451,7 +504,7 @@ function SongList({ show, pos, goTo, setSongsOpen, setScreen, v }) {
             <li><button class=${`song ${k === v.songIndex ? "current" : ""}`} aria-current=${k === v.songIndex}
                 onClick=${() => goTo(S.goToSong(show, pos.setlist, k))}>
               <span class="song-num">${k + 1}</span>
-              <span class="song-text"><span class="song-name">${song.name}</span>
+              <span class="song-text"><span class="song-name">${song.name}${song.tempo || song.key ? html` <span class="muted small">${[song.tempo ? `♩ ${song.tempo}` : "", song.key || ""].filter(Boolean).join(" · ")}</span>` : null}</span>
                 <span class="muted small">${show.rigs[song.rig].name} · ${sl.steps.slice(song.first_step, song.first_step + song.steps).map((s) => s.snapshot).join(" → ")}</span></span>
             </button></li>`)}
         </ol>

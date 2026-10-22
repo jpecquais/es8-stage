@@ -493,9 +493,27 @@ def _rig_devices(doc: dict, pedalboard: dict, problems: list[str]) -> None:
             check(ref.split(".")[0] if isinstance(ref, str) else None, f"snapshots[{i}].params.{ref}")
 
 
+SONG_INFO_LIMITS = {"key": 24, "notes": 500}  # docs/plan-song-info-undo-favorites.md
+
+
+def _check_song_info(doc: dict, at: str, problems: list[str]) -> None:
+    """Ce que la scène montre d'un morceau : `tempo` (BPM), `key` (tonalité, accordage), `notes`. Facultatifs."""
+    if "tempo" in doc and not _int(doc["tempo"], 20, 300):
+        problems.append(f"{at}tempo: expected 20-300 (BPM).")
+    for k, most in SONG_INFO_LIMITS.items():
+        if k in doc and not (isinstance(doc[k], str) and len(doc[k]) <= most):
+            problems.append(f"{at}{k}: expected a text of {most} characters at most.")
+
+
+def song_info(doc: dict) -> dict:
+    """Tempo, tonalité et notes d'un morceau, s'il en a."""
+    return {k: doc[k] for k in ("tempo", "key", "notes") if doc.get(k) not in (None, "")}
+
+
 def check_track(doc: dict, where: str = "track") -> dict:
     """Un morceau : un rig et son déroulé (noms de snapshots dans l'ordre joué, répétitions comprises)."""
     problems = _check_schema(doc, TRACK_SCHEMA, where)
+    _check_song_info(doc, "", problems)
     if not isinstance(doc.get("name"), str):
         problems.append('"name": expected a string.')
     if not isinstance(doc.get("rig"), str):
@@ -518,6 +536,8 @@ def check_setlist(doc: dict, where: str = "setlist") -> dict:
     for i, song in enumerate(songs):
         if isinstance(song, dict) and "name" in song and not isinstance(song["name"], str):
             problems.append(f"songs[{i}].name: expected a string.")
+        if isinstance(song, dict):
+            _check_song_info(song, f"songs[{i}].", problems)
         if isinstance(song, dict) and isinstance(song.get("track"), str):
             continue
         if not isinstance(song, dict) or not isinstance(song.get("rig"), str):
