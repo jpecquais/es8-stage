@@ -103,7 +103,8 @@ def test_saving_the_set_played_updates_the_stage_when_the_es8_has_nothing_to_cha
     threading.Thread(target=srv.serve_forever, daemon=True).start()
     try:
         doc = project_doc()
-        assert request(srv, "PUT", "/library/projects/PULSE", doc)[0] == 204  # pas joué : rien d'autre
+        status, body, _ = request(srv, "PUT", "/library/projects/PULSE", doc)
+        assert status == 200 and "stage" not in json.loads(body)  # pas joué : rien d'autre
         request(srv, "PUT", "/library/shows/PULSE", export_show(project_from_doc(doc)))
         request(srv, "POST", "/library/shows/PULSE", {"op": "play"})
         host.stage.act("next")

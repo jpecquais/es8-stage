@@ -7,9 +7,11 @@ nom dans la bibliothèque est noté dans `playing.json`.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 import shutil
+from datetime import datetime
 from pathlib import Path
 
 KINDS = {
@@ -17,6 +19,9 @@ KINDS = {
     "shows": (".show.json", "es8ctl.show/1"),
     "backups": (".syx", None),
 }
+HISTORY_KEEP = 100  # versions gardées par set
+HISTORY_GAP_S = 300  # deux versions gardées sont espacées d'au moins 5 min (le Designer enregistre à chaque frappe)
+_VERSION = re.compile(r"^\d{4}-\d\d-\d\d \d\d\.\d\d\.\d\d(?:-\d+)?$")
 _NAME = re.compile(r"^[^/\\:*?\"<>|\x00-\x1f.][^/\\:*?\"<>|\x00-\x1f]{0,79}$")
 
 
@@ -56,6 +61,47 @@ class Library:
         if not isinstance(doc, dict) or doc.get("schema") != schema:
             raise LibraryError(f"Not an {schema} document.")
 
+    @staticmethod
+    def etag(data: bytes) -> str:
+        """Empreinte d'un élément : un écran qui enregistre dit sur quelle version il a travaillé."""
+        return hashlib.sha256(data).hexdigest()[:16]
+
+    # ---------------------------------------------------------------- historique des sets
+    # Chaque enregistrement d'un set garde la version qu'il remplace : history/<set>/<date>.es8project.json.
+    def _history_dir(self, name: str) -> Path:
+        self.path("projects", name)  # même règle de nom
+        return self.root / "history" / name.strip()
+
+    def history(self, name: str) -> list[dict]:
+        folder = self._history_dir(name)
+        ext = KINDS["projects"][0]
+        items = [{"id": p.name[: -len(ext)], "modified": p.stat().st_mtime, "size": p.stat().st_size}
+                 for p in folder.glob("*" + ext)] if folder.is_dir() else []
+        return sorted(items, key=lambda i: i["id"], reverse=True)
+
+    def history_read(self, name: str, version: str) -> bytes:
+        if not _VERSION.match(version):
+            raise LibraryError(f"No version {version!r}.", 404)
+        p = self._history_dir(name) / (version + KINDS["projects"][0])
+        if not p.is_file():
+            raise LibraryError(f"No version {version!r} of {name!r}.", 404)
+        return p.read_bytes()
+
+    def _keep_version(self, name: str, old: Path) -> None:
+        folder = self._history_dir(name)
+        folder.mkdir(parents=True, exist_ok=True)
+        ext = KINDS["projects"][0]
+        newest = max((p.stat().st_mtime for p in folder.glob("*" + ext)), default=None)
+        if newest is not None and old.stat().st_mtime - newest < HISTORY_GAP_S:
+            return
+        stamp = datetime.fromtimestamp(old.stat().st_mtime).strftime("%Y-%m-%d %H.%M.%S")
+        target, n = folder / (stamp + ext), 2
+        while target.exists():
+            target, n = folder / f"{stamp}-{n}{ext}", n + 1
+        shutil.copy2(old, target)
+        for extra in sorted(folder.glob("*" + ext), key=lambda p: p.name, reverse=True)[HISTORY_KEEP:]:
+            extra.unlink()
+
     # ---------------------------------------------------------------- lecture
     def playing(self) -> str | None:
         try:
@@ -82,11 +128,16 @@ class Library:
         return p.read_bytes()
 
     # ---------------------------------------------------------------- écriture
-    def write(self, kind: str, name: str, data: bytes, replace: bool = True) -> None:
+    def write(self, kind: str, name: str, data: bytes, replace: bool = True, base: str | None = None) -> None:
+        """`base` : l'empreinte de la version que l'écran avait ouverte ; une autre version entre-temps est refusée."""
         p = self.path(kind, name)
         self._check(kind, data)
         if not replace and p.exists():
             raise LibraryError(f"{name!r} already exists in {kind}.", 409)
+        if base is not None and p.is_file() and self.etag(p.read_bytes()) != base:
+            raise LibraryError(f"{name!r} was changed on another screen since you opened it.", 412)
+        if kind == "projects" and p.is_file() and p.read_bytes() != data:
+            self._keep_version(name, p)
         p.parent.mkdir(parents=True, exist_ok=True)
         tmp = p.with_name(p.name + ".tmp")
         tmp.write_bytes(data)
@@ -110,6 +161,8 @@ class Library:
             raise LibraryError(f"{to!r} already exists in {kind}.", 409)
         playing = kind == "shows" and self.playing() == name
         src.rename(dst)
+        if kind == "projects" and self._history_dir(name).is_dir() and not self._history_dir(to).exists():
+            self._history_dir(name).rename(self._history_dir(to))
         if playing:
             self._set_playing(to)
 

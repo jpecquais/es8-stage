@@ -58,6 +58,7 @@ class EngineHost:
         from es8stage import webapp
 
         core.set_sender(self._send)
+        core.transport.queue = asyncio.Queue()  # la file des réponses de l'ES-8 appartient à cette boucle
         self.server.engine_in = lambda data: self.loop.call_soon_threadsafe(core.push, data)
         if self.cache_file.is_file():
             try:
@@ -71,7 +72,7 @@ class EngineHost:
         return asyncio.run_coroutine_threadsafe(coro, self.loop)
 
     def _send(self, raw) -> None:
-        err = self.server.bridge_send([list(raw)])
+        err = self.server.bridge_send([list(raw)], own=True)
         if err:
             raise RuntimeError(err)
 
@@ -102,6 +103,68 @@ class EngineHost:
         finally:
             self.running = None
             self._gate.release()
+
+    def send_project(self, doc: dict, report, only: str | None = None) -> dict:
+        """« Send to the ES-8 » fait par l'hôte (docs/unified-app.md) : relit sur l'ES-8 ce que le projet occupe
+        (patchs des rigs, système), compile, écrit en mode édition ce qui diffère et le relit jusqu'à
+        vérification. `only` (« 3-1 ») : n'écrit que ce patch, puis le rappelle (entendre un son en le réglant).
+        `report(phase, n, total)` suit l'avancement. Rend {written, patches, system}."""
+        if not self._gate.acquire(blocking=False):
+            raise EngineError(f"Already talking to the ES-8 ({self.running}).", 409)
+        try:
+            self.running, self.progress = "send", []
+            return self._run(self._send_project(json.dumps(doc), report, only)).result()
+        finally:
+            self.running = None
+            self._gate.release()
+
+    async def _send_project(self, doc_json: str, report, only: str | None) -> dict:
+        from es8core.codec import patch_label
+
+        from es8stage.model import project_from_doc
+
+        wb, core = self.module, self.core
+        project = project_from_doc(json.loads(doc_json))
+        if only:  # le patch essayé, et ce qui manque pour compiler
+            labels = sorted(set(wb._rig_needs(project)) | {only}, key=lambda x: (x != "system", x))
+        else:
+            labels = ["system"] + [patch_label(rig.patch(i)) for _, rig in sorted(project.rigs.items())
+                                   for i in range(len(rig.doc["snapshots"]))]
+        read = json.loads(await wb.read_some(json.dumps(labels), lambda n, t: report("read", n, t)))
+        if read["missing_pages"]:
+            raise EngineError("Some pages of the ES-8 could not be read: nothing was written.")
+        pv = json.loads(wb.rig_preview(doc_json))
+        if pv.get("error") or pv.get("missing"):
+            raise EngineError(" ".join(pv.get("problems") or [pv.get("error") or "The ES-8 could not be read."]), 400)
+        if pv["other_pending"]:
+            raise EngineError("Other changes are waiting in ES8 Control: write or discard them there first.", 409)
+        patches = [only] if only else sorted(pv["patches"])
+        system = bool(pv["system"]) and not only
+        if only and only not in pv["patches"] or pv["in_sync"]:
+            await self._save()
+            return {"written": 0, "patches": [], "system": False}
+        wb.discard()
+        staged = json.loads(wb.rig_stage(doc_json))
+        if staged.get("error"):
+            raise EngineError(staged["error"], 400)
+        if only:
+            core.pending = {"patches": {only: core.pending["patches"][only]}, "system": {}}
+            core._preview_cache.clear()
+        was = self.server.edit
+        self.server.set_edit(True, "Writing the ES-8")
+        try:
+            out = json.loads(await wb.write_pending(lambda phase, n, t: report(phase, n, t)))
+        finally:
+            if not was:
+                self.server.set_edit(False, "Written to the ES-8")
+        left = json.loads(wb.pending_summary())["frames"]
+        if out.get("error") or left or not out.get("confirmed"):
+            wb.discard()
+            raise EngineError(out.get("error") or "Some pages could not be verified on the ES-8: try again.")
+        if only:
+            await wb.select_on_device(only)
+        await self._save()
+        return {"written": out["frames"], "patches": patches, "system": system}
 
     @staticmethod
     async def _plain(func, args):

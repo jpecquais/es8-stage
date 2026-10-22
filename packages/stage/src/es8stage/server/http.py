@@ -217,6 +217,10 @@ def make_server(port: int, lan: bool = False, host=None, data: Path | None = Non
             try:
                 if not segs and method == "GET":
                     return self._reply(200, json.dumps(library.listing()).encode())
+                if segs[0] == "history" and method == "GET" and len(segs) in (2, 3):  # versions d'un set
+                    if len(segs) == 2:
+                        return self._reply(200, json.dumps(library.history(segs[1])).encode())
+                    return self._reply(200, library.history_read(segs[1], segs[2]))
                 if len(segs) != 2:
                     raise LibraryError("Expected /library/<section>/<name>.", 404)
                 kind, name = segs
@@ -224,6 +228,7 @@ def make_server(port: int, lan: bool = False, host=None, data: Path | None = Non
                     data = library.read(kind, name)
                     self.send_response(200)
                     self.send_header("Content-Type", "application/octet-stream" if kind == "backups" else "application/json")
+                    self.send_header("ETag", f'"{library.etag(data)}"')
                     if "download" in query:
                         self.send_header("Content-Disposition", "attachment; filename*=UTF-8''"
                                          + quote(library.path(kind, name).name))
@@ -235,9 +240,13 @@ def make_server(port: int, lan: bool = False, host=None, data: Path | None = Non
                     data = self._raw()
                     if data is None:
                         raise LibraryError("Empty or too large.", 413)
-                    library.write(kind, name, data, replace="new" not in query)
+                    base = (self.headers.get("If-Match") or "").strip('" ') or None
+                    library.write(kind, name, data, replace="new" not in query, base=base)
+                    out = {"etag": library.etag(data)}
                     if host is not None and kind == "projects" and library.playing() == name:
-                        return self._reply(200, json.dumps({"stage": restage(name, data)}).encode())
+                        out["stage"] = restage(name, data)
+                    if kind == "projects":
+                        return self._reply(200, json.dumps(out).encode())
                 elif method == "DELETE":
                     if not self._authed():
                         raise LibraryError("Deleting needs the host password: log in on the host page (/host/).", 401)
@@ -359,6 +368,15 @@ def make_server(port: int, lan: bool = False, host=None, data: Path | None = Non
                 except Exception as exc:  # noqa: BLE001 — rapporté à la page, comme une erreur Python dans Pyodide
                     return self._error(500, str(exc) or repr(exc))
                 return self._reply(200, json.dumps({"result": result}).encode())
+            if route == "/stage/send" and host is not None:  # écrire le set sur l'ES-8, puis le jouer
+                body = self._body()
+                if not isinstance(body, dict) or not isinstance(body.get("project"), str):
+                    return self._reply(400)
+                try:
+                    err = host.send_project(library, body["project"], body.get("only") or None)
+                except LibraryError as exc:
+                    return self._error(exc.code, str(exc))
+                return self._error(409, err) if err else self._reply(202)
             if route == "/stage/act" and host is not None:
                 cmd = self._body()
                 if not isinstance(cmd, dict):

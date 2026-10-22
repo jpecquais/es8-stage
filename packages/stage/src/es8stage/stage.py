@@ -60,6 +60,26 @@ def valid_position(show: dict, pos) -> dict:
     return start_position(show)
 
 
+def follow_position(old: dict | None, pos, new: dict) -> dict:
+    """La place dans `new` qui correspond à `pos` dans `old` : même setlist (banque MIDI), même morceau (nom),
+    même pas dans le morceau ; sinon le début de la setlist, ou du show."""
+    try:
+        sl = old["setlists"][pos["setlist"]]
+        step = sl["steps"][pos["step"]]
+        song = sl["songs"][step["song"]]
+        within = pos["step"] - song["first_step"]
+    except (TypeError, KeyError, IndexError):
+        return start_position(new)
+    for k, s in enumerate(new["setlists"]):
+        if s["midi_bank"] != sl["midi_bank"]:
+            continue
+        for so in s["songs"]:
+            if so["name"] == song["name"]:
+                return valid_position(new, {"setlist": k, "step": so["first_step"] + min(within, so["steps"] - 1)})
+        return valid_position(new, {"setlist": k, "step": 0})
+    return start_position(new)
+
+
 def _parts(show: dict, pos: dict):
     sl = show["setlists"][pos["setlist"]]
     step = sl["steps"][pos["step"]]

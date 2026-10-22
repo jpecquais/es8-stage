@@ -19,7 +19,7 @@ import time
 from datetime import datetime
 from pathlib import Path
 
-from es8stage.stage import Stage, check_show, is_playable
+from es8stage.stage import Stage, check_show, follow_position, is_playable
 
 # Mode édition oublié : il se coupe seul après ce temps sans message d'un éditeur vers l'ES-8.
 EDIT_IDLE_S = 600
@@ -173,11 +173,12 @@ class StageServer:
             return (data[8], data[9]) in self._SAFE_DT1
         return True
 
-    def bridge_send(self, messages: list[list[int]]) -> str | None:
-        """Envoie des messages d'un éditeur à l'ES-8 ; rend une erreur ou None."""
+    def bridge_send(self, messages: list[list[int]], own: bool = False) -> str | None:
+        """Envoie des messages d'un éditeur à l'ES-8 ; rend une erreur ou None. `own` : l'envoi en cours
+        (send_project) passe par le moteur, malgré son propre travail."""
         if self._out is None:
             return "The ES-8 is not connected to the stage host."
-        if self.busy():
+        if self.busy() and not (own and self.job["kind"] in ("send", "try")):
             return f"The stage host is busy ({self.job['kind']} of the ES-8): try again when it is done."
         if not all(self._allowed(m) for m in messages):
             return "Writing to the ES-8 is locked while the stage plays: turn Edit mode on (it pauses ES8 Companion)."
@@ -283,6 +284,65 @@ class StageServer:
         if missing:
             raise RuntimeError(f"{len(missing)} page(s) of the ES-8 could not be read; nothing was saved.")
         return frames
+
+    def _start_engine_job(self, kind: str, work) -> str | None:
+        """Travail du moteur des éditeurs (envoi d'un projet), suivi comme une sauvegarde : `work(report)`."""
+        if self._out is None:
+            return "The ES-8 is not connected to the stage host."
+        if self.busy():
+            return f"Already busy: {self.job['kind']}."
+        if self._engine_running():
+            return "An editor is talking to the ES-8: try again when it is done."
+        self.job = {"kind": kind, "phase": "start", "n": 0, "total": 0, "done": False, "error": None, "result": None}
+        self._changed()
+        last = [0.0]
+
+        def report(phase: str, n: int, total: int) -> None:
+            self.job.update(phase=phase, n=n, total=total)
+            if time.monotonic() - last[0] > 0.5 or n == total:
+                last[0] = time.monotonic()
+                self._changed()
+
+        def run():
+            try:
+                self.job["result"] = work(report)
+            except Exception as exc:  # noqa: BLE001 — rapporté à la page
+                self.job["error"] = str(exc) or repr(exc)
+            finally:
+                self.job["done"] = True
+                self._changed()
+
+        threading.Thread(target=run, daemon=True, name=f"stage-{kind}").start()
+        return None
+
+    def send_project(self, library, name: str, only: str | None = None) -> str | None:
+        """« Send to the ES-8 » (docs/unified-app.md) : le projet `name` de la bibliothèque est écrit sur l'ES-8
+        (engine_host.send_project), puis son show est joué, à la même place. `only` : un seul patch, essayé
+        (rien d'autre ne change, le show non plus). Rend une erreur, ou None : le travail est lancé."""
+        from es8stage.model import ModelError, export_show, project_from_doc
+
+        try:
+            doc = json.loads(library.read("projects", name))
+            show = export_show(project_from_doc(doc))
+        except (ModelError, ValueError) as exc:
+            return str(exc)
+
+        def work(report):
+            result = self.engine().send_project(doc, report, only)
+            if only or not show["setlists"]:
+                return result
+            blob = json.dumps(show).encode()
+            with self.lock:
+                old, pos = self.stage.show, self.stage.pos
+                library.write("shows", name, blob)
+                library.play(name)
+                self._show_mtime = self.show_file.stat().st_mtime_ns
+                self.stage.backup = False
+                self.stage.load(show, follow_position(old, pos, show))  # rien n'est envoyé
+            self._want_check = True
+            return result
+
+        return self._start_engine_job("try" if only else "send", work)
 
     def backup(self, library, name: str | None = None) -> str | None:
         """Lit tout l'ES-8 (≈ 800 pages) et range le dump dans la bibliothèque. Lecture seule : permis en jouant."""
@@ -475,8 +535,16 @@ class StageServer:
             return self.set_edit(bool(cmd.get("on")))
         if kind == "check":
             return self.check()
-        if self.edit and kind in ("act", "press", "goto", "resend", "favorite"):
+        if self.edit and kind in ("act", "press", "goto", "resend", "favorite", "cc"):
             return  # mode édition : la scène est en pause
+        if kind == "cc":  # entendre un réglage MIDI d'un son pendant qu'on le règle (appareils derrière l'ES-8)
+            try:
+                ch, cc, value = int(cmd["channel"]), int(cmd["cc"]), int(cmd["value"])
+            except (KeyError, TypeError, ValueError):
+                return None
+            if 1 <= ch <= 16 and 0 <= cc <= 127 and 0 <= value <= 127:
+                self._send([0xB0 | (ch - 1), cc, value])
+            return None
         with self.lock:
             if kind == "act":
                 self.stage.act(str(cmd.get("action")), "screen")

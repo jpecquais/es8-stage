@@ -219,3 +219,51 @@ def test_editor_engine_runs_on_the_host(host):
     again = EngineHost(server, cache)
     assert json.loads(again.call("patch_detail", ["0-1"]))
     assert again.core.state["source"] == "cache"
+
+
+def test_the_host_sends_the_set_to_the_es8_then_plays_it_in_place(host):
+    """« Send to the ES-8 » depuis l'appli (docs/unified-app.md) : l'hôte relit, compile, écrit et vérifie
+    en mode édition, puis joue le nouveau show à la même place ; « try » n'écrit qu'un patch et le rappelle."""
+    import json
+
+    from test_rig_model import project_doc
+
+    from es8core.live import select
+    from es8stage.model import export_show, project_from_doc
+
+    server, es8, lib = host
+    doc = project_doc()
+    lib.write("projects", "PULSE", json.dumps(doc).encode())
+    lib.write("shows", "PULSE", json.dumps(export_show(project_from_doc(doc))).encode())
+    lib.play("PULSE")
+    server.show_updated()
+    server.stage.pos = {"setlist": 0, "step": 2}  # Crunch, 3e pas
+    assert server.send_project(lib, "PULSE") is None
+    r = wait_job(server)
+    assert r["written"] > 0 and r["system"] and es8.writes > 0
+    assert not server.edit  # le mode édition est rendu
+    # Rien à écrire la deuxième fois
+    writes = es8.writes
+    assert server.send_project(lib, "PULSE") is None
+    assert wait_job(server)["written"] == 0 and es8.writes == writes
+    # Un nouvel ordre : écrit, puis joué ; la scène reste sur le même morceau
+    doc["setlists"]["nov"]["songs"].insert(0, {"rig": "crunch", "sequence": ["Chorus"], "name": "Opener"})
+    lib.write("projects", "PULSE", json.dumps(doc).encode())
+    assert server.send_project(lib, "PULSE") is None
+    wait_job(server)
+    steps = server.stage.show["setlists"][0]["steps"]
+    assert len(steps) == 4 and server.stage.pos == {"setlist": 0, "step": 3}
+    # Essayer un son : un seul patch, puis rappelé sur l'ES-8
+    doc["rigs"]["crunch"]["snapshots"][1]["loops"] = []
+    lib.write("projects", "PULSE", json.dumps(doc).encode())
+    sent = []
+    real = es8.__call__
+    server._send = lambda data: sent.append(list(data)) or real(data)
+    assert server.send_project(lib, "PULSE", only="12-2") is None
+    r = wait_job(server)
+    assert r == {"written": 2, "patches": ["12-2"], "system": False}
+    assert sent[-len(select("12-2").messages):] == [list(m) for m in select("12-2").messages]
+    assert len(server.stage.show["setlists"][0]["steps"]) == 4  # le show n'a pas changé
+    # Pas d'envoi sans ES-8
+    server._out = None
+    assert "not connected" in server.send_project(lib, "PULSE")
