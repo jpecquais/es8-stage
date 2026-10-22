@@ -192,3 +192,30 @@ def test_stop_lets_go_of_the_bluetooth_adapter(tmp_path, monkeypatch):
     monkeypatch.setattr(subprocess, "run", lambda cmd, **kw: calls.append(cmd))
     StageServer(tmp_path / "show.json", ble_address="20:98:66:65:EA:44", log=lambda m: None).stop()
     assert calls == [["bluetoothctl", "disconnect", "20:98:66:65:EA:44"]]
+
+
+def test_editor_engine_runs_on_the_host(host):
+    """Le pont Python des éditeurs tourne sur l'hôte (pas de Pyodide sur l'iPad) : il lit et écrit par le
+    port de l'hôte, avec les mêmes règles, et garde sa dernière lecture sur disque."""
+    import json
+
+    from es8stage.server.engine_host import EngineHost
+
+    server, es8, _ = host
+    engine = server.engine()
+    call = lambda fn, *args: json.loads(engine.call(fn, list(args)))  # noqa: E731
+    r = call("read_some", json.dumps(["system", "0-1"]))
+    assert not r["missing_pages"] and engine.progress
+    assert call("stage", "0-1", json.dumps({"master_bpm": 151})).get("error") is None
+    with pytest.raises(RuntimeError, match="Edit mode"):
+        engine.call("write_pending", [])
+    assert es8.writes == 0
+    server.set_edit(True)
+    assert call("write_pending")["confirmed"] and es8.writes == 2
+    assert call("pending_summary")["frames"] == 0
+    cache = server.show_file.with_name("engine-cache.json")
+    assert cache.is_file()
+    # Un hôte redémarré réaffiche la dernière lecture (marquée ancienne).
+    again = EngineHost(server, cache)
+    assert json.loads(again.call("patch_detail", ["0-1"]))
+    assert again.core.state["source"] == "cache"

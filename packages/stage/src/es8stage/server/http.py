@@ -6,7 +6,8 @@
   refait dès qu'une source change.
 - Show courant : `GET|POST /stage/show.json` ; bibliothèque : `/library/…` ;
   hôte de scène (`--stage`) : `/stage/state`, `/stage/events`, `/stage/act`, pont MIDI
-  `/stage/midi` et `/stage/midi/events` ; page de l'hôte : `/host/api/…`.
+  `/stage/midi` et `/stage/midi/events`, moteur des éditeurs `/stage/engine` (engine_host.py) ;
+  page de l'hôte : `/host/api/…`.
 """
 
 from __future__ import annotations
@@ -331,6 +332,19 @@ def make_server(port: int, lan: bool = False, host=None, data: Path | None = Non
                 if err:
                     return self._error(423 if "locked" in err else 503, err)
                 return self._reply(204)
+            if route == "/stage/engine" and host is not None:  # moteur des éditeurs, sur l'hôte
+                from .engine_host import EngineError
+
+                body = self._body()
+                if not isinstance(body, dict) or not isinstance(body.get("fn"), str) or not isinstance(body.get("args", []), list):
+                    return self._reply(400)
+                try:
+                    result = host.engine().call(body["fn"], body.get("args", []))
+                except EngineError as exc:
+                    return self._error(exc.code, str(exc))
+                except Exception as exc:  # noqa: BLE001 — rapporté à la page, comme une erreur Python dans Pyodide
+                    return self._error(500, str(exc) or repr(exc))
+                return self._reply(200, json.dumps({"result": result}).encode())
             if route == "/stage/act" and host is not None:
                 cmd = self._body()
                 if not isinstance(cmd, dict):
@@ -369,6 +383,9 @@ def make_server(port: int, lan: bool = False, host=None, data: Path | None = Non
                 return self._events()
             if route == "/stage/midi/events" and host is not None:
                 return self._midi_events()
+            if route == "/stage/engine/progress" and host is not None:
+                engine = host.engine()
+                return self._reply(200, json.dumps({"running": engine.running, "progress": engine.progress}).encode())
             if route == SHOW_PATH:
                 return self._reply(200, show_file.read_bytes()) if show_file.is_file() else self._reply(404)
             if route == ZIP_PATH:

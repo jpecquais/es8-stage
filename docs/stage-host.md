@@ -93,6 +93,22 @@ iPad ne sont que des écrans.
   switches sans effet pendant le concert. Designer et Control suivent l'état
   de l'hôte en direct (`/stage/events`).
 
+### Moteur sur l'hôte (2026-10-22)
+
+- Servis par le Pi, Designer et Control ne chargent plus Python dans la page :
+  Pyodide (des dizaines de Mo) faisait planter un iPad de 2019 (« Un problème
+  récurrent est survenu ») et demande internet, que le Wi-Fi du Pi n'a pas.
+- Le pont Python (`es8stage.webapp`) tourne sur le Pi
+  (`server/engine_host.py`) : `POST /stage/engine` `{fn, args}` (octets en
+  base64), `GET /stage/engine/progress` pendant un échange avec l'ES-8. La
+  page n'est que l'écran (`ES8_ENGINE.bridge`, `stage-shared/bridge.js`).
+- Il parle à l'ES-8 par le pont MIDI de l'hôte, avec le même verrou de scène.
+  Un seul état pour toutes les pages, gardé sur disque
+  (`engine-cache.json`) : après un redémarrage, la dernière lecture
+  s'affiche, marquée ancienne.
+- Hors hôte de scène (`es8stage serve` sur un ordinateur), Pyodide reste
+  utilisé, téléchargé seulement à ce moment.
+
 ### Bibliothèque de sets
 
 Sur le Pi (`~/.local/share/es8stage/library/`) :

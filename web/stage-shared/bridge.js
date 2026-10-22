@@ -2,8 +2,9 @@
 // À importer avant le premier appel à `boot()` (ES8 Designer l'importe ; ES8 Control le reçoit du
 // serveur, voir control.js). Points d'extension du moteur : `globalThis.ES8_ENGINE`.
 //
-// - Moteur Python : es8core + es8stage (`engine.zip`), pont `es8stage.webapp` (les fonctions de
-//   l'éditeur, plus les rigs).
+// - Moteur Python : es8core + es8stage, pont `es8stage.webapp` (les fonctions de l'éditeur, plus les
+//   rigs). Servie par un hôte de scène, la page n'est que l'écran : le pont tourne sur l'hôte
+//   (`/stage/engine`, engine_host.py), sans Pyodide ni internet. Sinon, Pyodide charge `engine.zip`.
 // - MIDI : si la page est servie par un hôte de scène (`es8stage serve --stage`, le Pi), c'est lui qui
 //   tient le MIDI de l'ES-8. On lui passe les messages par HTTP et ses réponses arrivent en flux
 //   (docs/stage-host.md, « Pont MIDI ») ; l'objet a la forme de celui de Web MIDI. Sinon, Web MIDI.
@@ -74,10 +75,80 @@ async function stageMidiAccess() {
   return { inputs: new Map([[input.id, input]]), outputs: new Map([[output.id, output]]), onstatechange: null };
 }
 
+// ---------------------------------------------------------------- pont Python sur l'hôte
+
+const DEVICE = new Set(["read_device", "read_some", "read_names", "write_pending", "select_on_device"]);
+const PURE = new Set(["names", "patch_names", "show_export"]); // ne dépendent que de leurs arguments : gardés
+const toBase64 = (data) => {
+  let binary = "";
+  for (let i = 0; i < data.length; i += 8192) binary += String.fromCharCode(...data.subarray(i, i + 8192));
+  return btoa(binary);
+};
+const pack = (args) => args.filter((a) => typeof a !== "function")
+  .map((a) => (a instanceof Uint8Array ? { $bytes: toBase64(a) } : a));
+const unpack = (r) => (r && r.$bytes !== undefined ? Uint8Array.from(atob(r.$bytes), (c) => c.charCodeAt(0)) : r);
+
+/** Appels du pont : synchrones (le moteur de l'éditeur les attend tels quels), sauf les échanges avec l'ES-8. */
+function remoteBridge() {
+  const url = new URL("stage/engine", BASE).href;
+  const memo = new Map();
+  const callNow = (fn, args) => {
+    const body = JSON.stringify({ fn, args: pack(args) });
+    if (PURE.has(fn) && memo.has(body)) return memo.get(body);
+    const xhr = new XMLHttpRequest();
+    xhr.open("POST", url, false);
+    xhr.setRequestHeader("Content-Type", "application/json");
+    xhr.send(body);
+    let reply = {};
+    try { reply = JSON.parse(xhr.responseText); } catch { /* réponse vide */ }
+    if (xhr.status !== 200) throw new Error(reply.error || `The stage host does not answer (${xhr.status}).`);
+    const result = unpack(reply.result);
+    if (PURE.has(fn)) { if (memo.size > 200) memo.clear(); memo.set(body, result); }
+    return result;
+  };
+  // Échange avec l'ES-8 : la réponse arrive à la fin ; l'avancement est relu en attendant.
+  const callDevice = async (fn, args) => {
+    const report = args.find((a) => typeof a === "function");
+    let done = false;
+    const watch = async () => {
+      while (!done) {
+        await new Promise((r) => setTimeout(r, 400));
+        try {
+          const p = await (await fetch(new URL("stage/engine/progress", BASE), { cache: "no-store" })).json();
+          if (!done && report && p.running === fn && p.progress.length) report(...p.progress);
+        } catch { /* l'appel principal dira l'erreur */ }
+      }
+    };
+    watch();
+    try {
+      const res = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ fn, args: pack(args) }) });
+      const reply = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(reply.error || `The stage host does not answer (${res.status}).`);
+      return unpack(reply.result);
+    } finally {
+      done = true;
+    }
+  };
+  const special = {
+    remote: true,
+    then: undefined, // l'objet est rendu par une fonction async : ce n'est pas une promesse
+    synced: () => JSON.parse(callNow("engine_status", [])).synced,
+    set_sender: () => {}, // l'hôte envoie lui-même sur son port MIDI
+    push: () => {}, // et reçoit lui-même les réponses de l'ES-8
+    syx_bytes: (...args) => { const data = callNow("syx_bytes", args); return { toJs: () => data, destroy() {} }; },
+  };
+  return new Proxy({}, {
+    get: (_, fn) => (fn in special ? special[fn]
+      : typeof fn !== "string" ? undefined
+        : DEVICE.has(fn) ? (...args) => callDevice(fn, args) : (...args) => callNow(fn, args)),
+  });
+}
+
 globalThis.ES8_ENGINE = {
   zip: new URL("stage-shared/engine.zip", BASE).href,
   module: "es8stage.webapp",
   midiAccess: stageMidiAccess,
+  bridge: async () => ((await stageHostState()) ? remoteBridge() : null),
 };
 
 /** Mode édition de l'hôte de scène : la Companion se met en pause et l'écriture sur l'ES-8 est permise. */

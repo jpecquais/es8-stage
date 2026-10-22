@@ -48,6 +48,9 @@ class StageServer:
         self.job: dict | None = None  # travail en cours ou dernier fini : {kind, phase, n, total, done, error, result}
         self.stage = Stage(send=self._send, changed=self._changed)
         self.playing_name = lambda: None  # nom du set joué dans la bibliothèque (posé par le serveur HTTP)
+        self.engine_in = None  # SysEx reçu, pour le moteur des éditeurs (engine_host.py)
+        self._engine = None
+        self._engine_lock = threading.Lock()
         self._load_show(restore=True)
 
     # ---------------------------------------------------------------- show et persistance
@@ -120,6 +123,8 @@ class StageServer:
         if msg.type == "sysex":
             for tap in list(self._taps):
                 tap.put(bytes(data))
+            if self.engine_in is not None:
+                self.engine_in(bytes(data))
         with self.midi_cond:  # tout part aussi vers les éditeurs branchés sur le pont
             self.midi_seq += 1
             self.midi_log.append((self.midi_seq, data))
@@ -190,6 +195,19 @@ class StageServer:
                 pass
         self._changed()
 
+    # ---------------------------------------------------------------- moteur des éditeurs
+    def engine(self):
+        """Le pont Python d'ES8 Designer et d'ES8 Control, chargé au premier appel d'une page."""
+        with self._engine_lock:
+            if self._engine is None:
+                from .engine_host import EngineHost
+
+                self._engine = EngineHost(self, self.show_file.with_name("engine-cache.json"))
+            return self._engine
+
+    def _engine_running(self) -> str | None:
+        return self._engine.running if self._engine is not None else None
+
     # ---------------------------------------------------------------- sauvegarde et restauration de l'ES-8
     def busy(self) -> bool:
         return bool(self.job and not self.job.get("done"))
@@ -199,6 +217,8 @@ class StageServer:
             return "The ES-8 is not connected to the stage host."
         if self.busy():
             return f"Already busy: {self.job['kind']}."
+        if self._engine_running():
+            return "An editor is talking to the ES-8: try again when it is done."
         self.job = {"kind": kind, "phase": "start", "n": 0, "total": 0, "done": False, "error": None, "result": None}
         self._changed()
 
@@ -319,7 +339,8 @@ class StageServer:
 
     def _auto_check(self) -> None:
         """Après un branchement, un nouveau show ou la fin du mode édition : on revérifie, sans gêner personne."""
-        if self._want_check and self._out is not None and self.stage.show and not self.edit and not self.busy():
+        if (self._want_check and self._out is not None and self.stage.show and not self.edit and not self.busy()
+                and not self._engine_running()):
             self.check()
 
     ble_seen: bool | None = None  # l'adaptateur s'annonce-t-il ? (None : pas encore cherché)
