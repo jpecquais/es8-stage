@@ -156,7 +156,7 @@ class EngineHost:
             out = json.loads(await wb.write_pending(lambda phase, n, t: report(phase, n, t)))
         finally:
             if not was:
-                self.server.set_edit(False, "Written to the ES-8")
+                self.server.set_edit(False, "Written to the ES-8", own=True)
         left = json.loads(wb.pending_summary())["frames"]
         if out.get("error") or left or not out.get("confirmed"):
             wb.discard()

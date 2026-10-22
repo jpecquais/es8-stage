@@ -195,9 +195,10 @@ class StageServer:
             self.midi_cond.wait_for(lambda: self.midi_seq > after, timeout=timeout)
             return [(n, d) for n, d in self.midi_log if n > after]
 
-    def set_edit(self, on: bool, reason: str = "") -> None:
-        if not on and self.busy() and self.job["kind"] == "restore":
-            return  # une restauration écrit encore : la scène reste en pause
+    def set_edit(self, on: bool, reason: str = "", own: bool = False) -> None:
+        """`own` : le travail en cours (l'envoi) rend lui-même la main à la scène."""
+        if not on and not own and self.busy() and self.job["kind"] in ("restore", "send", "try"):
+            return  # l'hôte écrit encore sur l'ES-8 : la scène reste en pause
         was, self.edit = self.edit, bool(on)
         self._edit_touched = time.monotonic()
         if was and not self.edit:

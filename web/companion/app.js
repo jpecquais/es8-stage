@@ -199,7 +199,11 @@ function Banners({ snap, link, setScreen }) {
   const out = [];
   const details = setScreen ? html` <button class="link" onClick=${() => setScreen("menu")}>Details</button>` : null;
   if (link === "lost") out.push(html`<p class="banner bad">The stage host does not answer: reconnecting… The ES-8 keeps its sound.</p>`);
-  if (snap.edit) {
+  const job = snap.job;
+  if (job && !job.done && (job.kind === "send" || job.kind === "try")) {
+    out.push(html`<p class="banner edit"><span><b>Writing the ES-8</b> · ${job.kind === "try" ? "one sound" : "the set"}${job.total ? ` (${Math.round((100 * job.n) / job.total)} %)` : ""}.
+      The footswitches are paused until it is done.</span></p>`);
+  } else if (snap.edit) {
     out.push(html`<div class="banner edit">
       <span><b>Edit mode</b> · the footswitches are paused while the ES-8 is being edited.</span>
       <button class="primary" onClick=${() => post({ type: "edit", on: false })}>Resume the show</button></div>`);
@@ -567,13 +571,13 @@ function Shows({ snap }) {
           ${it.name === listing.playing ? html`<span class="tag">playing</span>`
             : html`<button class="ghost" disabled=${!!busy} onClick=${() => play(it.name)}>${busy === it.name ? "…" : "Play"}</button>`}
         </div>`)
-        : html`<p class="muted small">None yet: in ES8 Designer, “Send to stage” adds the project's show here and plays it.</p>`}
+        : html`<p class="muted small">None yet: in Edit, “Send to the ES-8” adds the set's show here and plays it.</p>`}
     </div>`;
 }
 
 const CHECK_TEXT = {
   ok: "The ES-8 matches this show: every step loads the right patch.",
-  mismatch: "The ES-8 does not match this show. In ES8 Designer, open the project and use “Send to stage”.",
+  mismatch: "The ES-8 does not match this show. In Edit, use “Send to the ES-8”.",
   checking: "Reading the ES-8 settings…",
   error: "The check failed.",
   unknown: "Not checked yet.",
@@ -647,7 +651,7 @@ function Menu(ctx) {
           <h2 class="eyebrow">Show</h2>
           ${show ? html`<p class="box-title">${show.setlists.map((s) => s.name).join(" · ")}</p>
               <p class="muted small">Exported ${show.exported ? new Date(show.exported).toLocaleString([], { dateStyle: "medium", timeStyle: "short" }) : "?"}</p>`
-            : html`<p>No show is played yet. Choose one below, or prepare it in ES8 Designer and use “Send to stage”.</p>`}
+            : html`<p>No show is played yet. Choose one below, or prepare a set in Edit and use “Send to the ES-8”.</p>`}
           <${Shows} snap=${snap} />
         </section>
         <${ES8Box} snap=${snap} />
