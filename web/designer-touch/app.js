@@ -1005,18 +1005,26 @@ const SCREENS = {
       if (!sel.key || !sid) return html`<${Empty} text="Touch a footswitch." />`;
       const key = sel.key;
       const sw = (doc.surfaces[sid].switches || {})[key] || {};
+      // Le nom du footswitch reste quand on change ce qu'il fait ; « Nothing » l'efface.
       const put = (next) => edit((d) => {
         const sws = d.surfaces[sid].switches = d.surfaces[sid].switches || {};
-        if (next) sws[key] = next; else delete sws[key];
+        if (next) sws[key] = sw.label && !("label" in next) ? { ...next, label: sw.label } : next; else delete sws[key];
+      });
+      const rename = (v) => edit((d) => {
+        const x = d.surfaces[sid].switches[key];
+        if (v) x.label = v; else delete x.label;
       });
       const check = (on) => html`<span class="check">${on ? "✓" : ""}</span>`;
       const loops = Object.values(doc.pedalboard.devices || {}).flatMap((d) => (d.loops || []).map((l) => [l, d.name]));
       return html`<${Detail} title=${swName(key)}>
+        ${sw.role ? html`<${Group} foot="Shown on stage for this footswitch. Empty: the name of what it does.">
+          <${Row} title="Name"><input class="text" value=${sw.label || ""} placeholder=${switchText(doc, { ...sw, label: "" })}
+            onInput=${(e) => rename(e.target.value)} /></${Row}></${Group}>` : null}
         <${Group}><${Row} title="Nothing" onTap=${() => put(null)}>${check(!sw.role)}</${Row}></${Group}>
         <${Group} title="Move through the setlist">${COMPANION_ACTIONS.map(([a, label]) => html`
           <${Row} title=${label} onTap=${() => put({ role: "companion", action: a })}>${check(sw.role === "companion" && sw.action === a)}</${Row}>`)}</${Group}>
         <${Group} title="Switch a MIDI parameter">${allParams(doc).map((x) => html`
-          <${Row} title=${x.p.name} sub=${x.dev.name} onTap=${() => put({ role: "param", param: x.ref, mode: sw.mode || "toggle" })}>${check(sw.role === "param" && sw.param === x.ref)}</${Row}>`)}</${Group}>
+          <${Row} title=${x.p.name} sub=${x.dev.name} onTap=${() => put({ ...(sw.role === "param" && sw.param === x.ref ? sw : {}), role: "param", param: x.ref, mode: sw.mode || "toggle" })}>${check(sw.role === "param" && sw.param === x.ref)}</${Row}>`)}</${Group}>
         ${sw.role === "param" ? html`<${Group} title="Behaviour"><${Row} title="Footswitch">
           <${Seg} value=${sw.mode === "momentary" ? "momentary" : "toggle"} options=${[["toggle", "Press on / off"], ["momentary", "While held"]]}
             onChange=${(m) => put({ ...sw, mode: m })} /></${Row}></${Group}>` : null}
