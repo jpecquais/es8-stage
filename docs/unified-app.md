@@ -121,23 +121,55 @@ Une modification touche deux choses, qui ne vont pas à la même vitesse :
 
 ## Où on en est (2026-10-22)
 
-Étapes 1 et 2 faites, l'envoi à l'ES-8 reste dans le Designer habituel.
+Étapes 1 à 5 faites ; l'ancien Designer n'est plus nécessaire pour la scène.
 
 - **`/app/`** (où mène `/`) : `web/app/` monte la Companion (`companion/app.js`) et le
   Designer tactile (`designer-touch/app.js`), chacun dans son shadow DOM avec sa feuille
   de style (mêmes noms de classes des deux côtés). Les deux restent montés : la scène suit
   l'hôte pendant l'édition, l'édition retrouve sa place. `/companion/` et
   `/designer-touch/` marchent toujours seuls (`window.ES8_SHELL` absent).
-- **✎ Edit** dans la barre de scène ouvre le son joué (le favori s'il y en a un) dans
-  Sounds ; sur l'accueil, il ouvre Setlists & favorites. Entrer en édition relit le set
-  s'il n'y a pas de changement en cours.
-- **Done** enregistre (s'il y a des changements) et revient au jeu, avec un message ;
-  le retour du navigateur revient au jeu sans enregistrer (les changements restent).
-- **Enregistrer le set joué** (`PUT /library/projects/<nom>`, `restage` dans `http.py`,
-  `StageServer.project_saved`) : le Pi recalcule le show. Mêmes tables de PC et même
-  canal → la scène le joue tout de suite, à la même place, sans rien envoyer
-  (`"playing"`) ; sinon elle garde l'ancien (`"send"`) jusqu'à « Send to stage ».
-  Réponse `{"stage": "playing" | "unchanged" | "send" | "invalid"}`.
+- **✎ Edit** ouvre le son joué (le favori s'il y en a un) ; sur l'accueil, Setlists &
+  favorites. **Done** enregistre et revient au jeu ; le retour du navigateur revient au
+  jeu sans enregistrer.
+- **Enregistrer le set joué** (`PUT /library/projects/<nom>`, `restage`,
+  `StageServer.project_saved`) : mêmes tables de PC et même canal → la scène joue le
+  nouveau show tout de suite, à la même place (`"playing"`) ; sinon elle attend l'envoi
+  (`"send"`).
+- **Send to the ES-8** (`POST /stage/send {project}`, `StageServer.send_project`,
+  `EngineHost.send_project`) : c'est l'hôte qui relit les patchs du set et le système,
+  compile, écrit en mode édition, relit jusqu'à vérification, puis joue le show en
+  gardant la place (même setlist, même morceau par son nom : `stage.follow_position`).
+  Suivi comme une sauvegarde (`snap.job`, `kind: "send"`), affiché dans l'édition et en
+  bandeau sur la scène. Refusé si ES8 Control a d'autres changements en attente.
+- **Ce qui diffère de l'ES-8** : l'édition appelle `rig_preview` sur le moteur de l'hôte
+  (rien n'est lu sur l'ES-8, c'est sa dernière lecture) ; un point orange marque les sons,
+  rigs, setlists et rubriques qui diffèrent ; le bouton dit combien.
+- **Entendre en réglant** : un réglage MIDI du son qui joue part tout de suite
+  (`/stage/act {type: "cc"}`) ; « Hear it on the ES-8 » écrit ce seul patch et le
+  rappelle (`only`, `kind: "try"`), le show ne change pas.
+- **Historique** : chaque enregistrement garde la version remplacée
+  (`library/history/<set>/`, 5 min d'écart au moins, 100 au plus) ; Settings › History
+  la remet dans l'éditeur (Save la garde).
+- **Deux écrans** : `ETag` à la lecture, `If-Match` à l'écriture ; une version changée
+  entre-temps est refusée (412) et l'écran demande : garder la sienne, ou charger l'autre.
+- **Le Designer tactile fait tout ce que demande la scène** : rigs (patchs, chaîne,
+  appareils, programmes, surface, noms de switch, rig de secours), programmes nommés des
+  appareils, programme et son de secours d'un son, canaux (Settings). Un set d'une forme
+  plus ancienne (morceaux dans la setlist, rig v1) est converti à l'ouverture.
+- **Tests navigateur** : `tests/test_web_app.py` (Firefox sans écran, faux ES-8),
+  `uv run --with selenium pytest tests/test_web_app.py`.
+
+Laissé de côté, exprès :
+
+- **Plus de 7 setlists** : chaque setlist occupe une banque MIDI de la pc_map, ce qui
+  laisse l'ES-8 dérouler la setlist seul si le Pi tombe. Faire rappeler les patchs par le
+  Pi (comme les favoris) lèverait la limite mais perdrait ce secours : à décider.
+- **LED de l'ES-8 suivies par le Pi** : demande des essais sur l'appareil.
+- **Pont du moteur sans XHR synchrone** : seul le Designer de bureau et Control s'en
+  servent ; l'appli unifiée n'appelle le moteur qu'en `fetch`. Le changer touche toute
+  l'API du moteur (`es8/web/shared/engine.js`).
+- **Une seule feuille de style** : jouer (chaud, ambre) et éditer (froid, bleu) gardent
+  chacun la leur ; les fondre est un travail de design à part.
 
 ## Questions ouvertes
 

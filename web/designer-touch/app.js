@@ -382,14 +382,18 @@ export function App({ shell, target, nonce } = {}) {
             <button class="undo" onClick=${() => { setDoc(clone(loaded.doc)); setStack([]); }}>Undo all</button></div>` : null}
         </div>
       </aside>
-      <section class="col">
+      <section class="col list">
         <div class="bar">
           ${shell ? html`<button class="tool done" disabled=${saving} onClick=${done} title=${changed ? "Save and go back to playing" : "Go back to playing"}>${saving ? "Saving…" : "Done"}</button>` : null}
-          <button class="tool icon menu-btn" aria-label="Sections" onClick=${() => setSideOpen(true)}>☰</button>
+          <button class="tool icon menu-btn" aria-label="Sections" onClick=${() => setSideOpen(true)}>☰${marks.sounds || marks.setlists ? html`<span class="badge"></span>` : null}</button>
           <h1>${S.title(ctx)}</h1>
           ${S.tools ? S.tools(ctx) : null}
         </div>
         <div class="scroll"><${S.List} ...${ctx} /></div>
+        <div class="toolbar">
+          ${snap ? html`<${SendBox} diff=${diff} job=${job} connected=${connected} changed=${changed} send=${send} />` : null}
+          ${changed ? html`<button class="save" disabled=${saving} onClick=${saveHere}>${saving ? "Saving…" : "Save"}</button>` : null}
+        </div>
       </section>
       <section class="col">
         ${top ? html`

@@ -71,3 +71,19 @@ Deux natures de données :
 6. **Le pédalier de l'ES-8 reste spatial** (Footswitches, Boucles) : c'est
    le seul endroit où la grille a un sens, comme la Gig View du Quad Cortex.
 7. **« Send to stage » toujours visible**, avec l'état de l'ES-8.
+
+## Ce qui s'y est ajouté (2026-10-22)
+
+Le Designer tactile est la posture « éditer » de l'appli unifiée (docs/unified-app.md).
+
+- **Sounds** : en tête, les rigs ; toucher un rig ouvre ses réglages (patchs de l'ES-8,
+  chaîne de boucles, appareils, programmes, surface, noms de switch, rig de secours),
+  « + New rig » en crée un sur les premiers patchs libres. Un son a ses programmes
+  (celui du rig par défaut, un autre, ou aucun) et son son de secours.
+- **Pedalboard** : un appareil MIDI dit comment il change de programme et nomme ses
+  programmes ; supprimer un appareil, une boucle ou un paramètre retire aussi ses
+  références (rigs, sons, switches), pour que le set reste valable.
+- **Settings** : canaux de l'ES-8 et de la scène, historique des versions, autres outils.
+- **En bas** (colonne des rubriques, ou barre d'outils sous la liste sur iPad) : l'état
+  face à l'ES-8 et « Send to the ES-8 · n », Save et Undo all.
+- Le point orange est la convention pour « diffère de l'ES-8 », partout.

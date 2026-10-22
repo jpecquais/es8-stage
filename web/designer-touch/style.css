@@ -172,3 +172,17 @@ input { font: inherit; color: inherit; }
 .row input.text:not(.big):focus { color: var(--ink); }
 .stepper button[aria-label*="bank"] { width: 40px; font-size: 18px; color: var(--muted); }
 .stepper span { min-width: 56px; }
+
+/* iPad : la colonne des rubriques est repliée ; l'envoi et l'enregistrement restent en bas de la liste */
+.col.list { grid-template-rows: auto minmax(0, 1fr) auto; }
+.toolbar { display: none; }
+.menu-btn { position: relative; }
+.menu-btn .badge { position: absolute; top: 8px; right: 4px; width: 9px; height: 9px; border-radius: 50%; background: var(--pending); }
+@media (max-width: 1100px) {
+  .toolbar:not(:empty) { display: flex; align-items: center; gap: 10px; padding: 10px; border-top: 1px solid var(--line); background: var(--col); }
+  .toolbar .sendbox { flex: 1; min-width: 0; }
+  .toolbar .sendbox .note { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .toolbar .save { padding: 0 18px; }
+  .toolbar .send, .toolbar .save { min-height: 46px; }
+  .side-foot .sendbox, .side-foot .save-row { display: none; }
+}
