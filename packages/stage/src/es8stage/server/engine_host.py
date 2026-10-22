@@ -104,21 +104,22 @@ class EngineHost:
             self.running = None
             self._gate.release()
 
-    def send_project(self, doc: dict, report, only: str | None = None) -> dict:
+    def send_project(self, doc: dict, report, only: str | None = None, dry: bool = False) -> dict:
         """« Send to the ES-8 » fait par l'hôte (docs/unified-app.md) : relit sur l'ES-8 ce que le projet occupe
         (patchs des rigs, système), compile, écrit en mode édition ce qui diffère et le relit jusqu'à
         vérification. `only` (« 3-1 ») : n'écrit que ce patch, puis le rappelle (entendre un son en le réglant).
-        `report(phase, n, total)` suit l'avancement. Rend {written, patches, system}."""
+        `dry` : relit et compare seulement (rien n'est écrit). `report(phase, n, total)` suit l'avancement.
+        Rend {written, patches, system}."""
         if not self._gate.acquire(blocking=False):
             raise EngineError(f"Already talking to the ES-8 ({self.running}).", 409)
         try:
             self.running, self.progress = "send", []
-            return self._run(self._send_project(json.dumps(doc), report, only)).result()
+            return self._run(self._send_project(json.dumps(doc), report, only, dry)).result()
         finally:
             self.running = None
             self._gate.release()
 
-    async def _send_project(self, doc_json: str, report, only: str | None) -> dict:
+    async def _send_project(self, doc_json: str, report, only: str | None, dry: bool = False) -> dict:
         from es8core.codec import patch_label
 
         from es8stage.model import project_from_doc
@@ -136,6 +137,9 @@ class EngineHost:
         pv = json.loads(wb.rig_preview(doc_json))
         if pv.get("error") or pv.get("missing"):
             raise EngineError(" ".join(pv.get("problems") or [pv.get("error") or "The ES-8 could not be read."]), 400)
+        if dry:
+            await self._save()
+            return {"written": 0, "patches": sorted(pv["patches"]), "system": bool(pv["system"])}
         if pv["other_pending"]:
             raise EngineError("Other changes are waiting in ES8 Control: write or discard them there first.", 409)
         patches = [only] if only else sorted(pv["patches"])

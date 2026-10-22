@@ -178,7 +178,7 @@ class StageServer:
         (send_project) passe par le moteur, malgré son propre travail."""
         if self._out is None:
             return "The ES-8 is not connected to the stage host."
-        if self.busy() and not (own and self.job["kind"] in ("send", "try")):
+        if self.busy() and not (own and self.job["kind"] in ("send", "try", "compare")):
             return f"The stage host is busy ({self.job['kind']} of the ES-8): try again when it is done."
         if not all(self._allowed(m) for m in messages):
             return "Writing to the ES-8 is locked while the stage plays: turn Edit mode on (it pauses ES8 Companion)."
@@ -316,10 +316,11 @@ class StageServer:
         threading.Thread(target=run, daemon=True, name=f"stage-{kind}").start()
         return None
 
-    def send_project(self, library, name: str, only: str | None = None) -> str | None:
+    def send_project(self, library, name: str, only: str | None = None, compare: bool = False) -> str | None:
         """« Send to the ES-8 » (docs/unified-app.md) : le projet `name` de la bibliothèque est écrit sur l'ES-8
         (engine_host.send_project), puis son show est joué, à la même place. `only` : un seul patch, essayé
-        (rien d'autre ne change, le show non plus). Rend une erreur, ou None : le travail est lancé."""
+        (rien d'autre ne change, le show non plus). `compare` : relit seulement ce que le set occupe sur l'ES-8,
+        pour savoir ce qui diffère. Rend une erreur, ou None : le travail est lancé."""
         from es8stage.model import ModelError, export_show, project_from_doc
 
         try:
@@ -329,8 +330,8 @@ class StageServer:
             return str(exc)
 
         def work(report):
-            result = self.engine().send_project(doc, report, only)
-            if only or not show["setlists"]:
+            result = self.engine().send_project(doc, report, only, dry=compare)
+            if only or compare or not show["setlists"]:
                 return result
             blob = json.dumps(show).encode()
             with self.lock:
@@ -343,7 +344,7 @@ class StageServer:
             self._want_check = True
             return result
 
-        return self._start_engine_job("try" if only else "send", work)
+        return self._start_engine_job("compare" if compare else "try" if only else "send", work)
 
     def backup(self, library, name: str | None = None) -> str | None:
         """Lit tout l'ES-8 (≈ 800 pages) et range le dump dans la bibliothèque. Lecture seule : permis en jouant."""

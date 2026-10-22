@@ -373,7 +373,7 @@ def make_server(port: int, lan: bool = False, host=None, data: Path | None = Non
                 if not isinstance(body, dict) or not isinstance(body.get("project"), str):
                     return self._reply(400)
                 try:
-                    err = host.send_project(library, body["project"], body.get("only") or None)
+                    err = host.send_project(library, body["project"], body.get("only") or None, bool(body.get("compare")))
                 except LibraryError as exc:
                     return self._error(exc.code, str(exc))
                 return self._error(409, err) if err else self._reply(202)

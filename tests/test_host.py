@@ -238,6 +238,9 @@ def test_the_host_sends_the_set_to_the_es8_then_plays_it_in_place(host):
     lib.play("PULSE")
     server.show_updated()
     server.stage.pos = {"setlist": 0, "step": 2}  # Crunch, 3e pas
+    assert server.send_project(lib, "PULSE", compare=True) is None  # comparer : lire seulement
+    r = wait_job(server)
+    assert r["patches"] == ["12-1", "12-2"] and r["system"] and es8.writes == 0 and not server.edit
     assert server.send_project(lib, "PULSE") is None
     r = wait_job(server)
     assert r["written"] > 0 and r["system"] and es8.writes > 0

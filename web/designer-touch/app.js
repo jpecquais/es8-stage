@@ -297,9 +297,10 @@ export function App({ shell, target, nonce } = {}) {
   const mine = useRef(false);
   const jobBusy = !!(job && !job.done);
   useEffect(() => {
-    if (!job || jobBusy || !mine.current || !["send", "try"].includes(job.kind)) return;
+    if (!job || jobBusy || !mine.current || !["send", "try", "compare"].includes(job.kind)) return;
     mine.current = false;
-    if (job.error) toast(`Not written: ${job.error}`, 8000);
+    if (job.error) toast(`${job.kind === "compare" ? "Not compared" : "Not written"}: ${job.error}`, 8000);
+    else if (job.kind === "compare") toast("Compared with the ES-8.");
     else if (!job.result || !job.result.written) toast(job.kind === "try" ? "The ES-8 already has this sound." : "The ES-8 already matched: nothing to write.");
     else toast(job.kind === "try" ? "Written: the ES-8 plays this sound now." : "Written and checked. The stage plays it now.", 4000);
   }, [jobBusy]);
@@ -342,10 +343,10 @@ export function App({ shell, target, nonce } = {}) {
     if (t) shell.done(t);
   };
   /** « Send to the ES-8 » (tout) ou un seul patch (`only`, « 3-1 ») : enregistre d'abord, puis l'hôte écrit. */
-  const send = async (only) => {
-    if (!only && !confirm(`Write ${diff && diff.count ? plural(diff.count, "change") : "this set"} to the ES-8?\n\nThe footswitches pause while it writes (from a few seconds to a minute), then the stage plays the new version where it was.`)) return;
+  const send = async (only, compare = false) => {
+    if (!only && !compare && !confirm(`Write ${diff && diff.count ? plural(diff.count, "change") : "this set"} to the ES-8?\n\nThe footswitches pause while it writes (from a few seconds to a minute), then the stage plays the new version where it was.`)) return;
     if (changed && !(await save())) return;
-    const res = await fetch("../stage/send", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ project: loaded.name, only: only || null }) });
+    const res = await fetch("../stage/send", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ project: loaded.name, only: only || null, compare }) });
     if (res.ok) mine.current = true;
     else toast(`Not sent: ${(await res.json().catch(() => ({}))).error || `error ${res.status}`}`, 6000);
   };
@@ -419,7 +420,7 @@ const soundDiffers = (rig, i, diff) => !!(diff && diff.patches && diff.patches.h
 
 /** L'état de l'ES-8 face au set, et le bouton pour l'y écrire. */
 function SendBox({ diff, job, connected, changed, send }) {
-  if (job && !job.done && ["send", "try", "restore", "backup"].includes(job.kind)) {
+  if (job && !job.done && ["send", "try", "compare", "restore", "backup"].includes(job.kind)) {
     const pct = job.total ? Math.round((100 * job.n) / job.total) : 0;
     return html`<div class="sendbox busy"><span>${job.kind === "backup" ? "Backing up the ES-8" : job.kind === "restore" ? "Restoring the ES-8" : PHASES[job.phase] || job.phase}…</span>
       <span class="meter"><span style=${`width:${pct}%`}></span></span></div>`;
@@ -428,9 +429,10 @@ function SendBox({ diff, job, connected, changed, send }) {
   const pending = diff && diff.count;
   const label = pending ? `Send to the ES-8 · ${pending}` : "Send to the ES-8";
   const note = !connected ? "The ES-8 is not connected."
-    : diff && diff.unknown ? "Not compared with the ES-8 yet."
+    : diff && diff.unknown ? "Not compared yet: comparing only reads the ES-8."
       : diff && !pending ? "The ES-8 matches this set." : "";
   return html`<div class="sendbox">
+    ${connected && diff && diff.unknown ? html`<button class="compare" onClick=${() => send(null, true)}>Compare with the ES-8</button>` : null}
     ${connected && (pending || (diff && diff.unknown) || !diff) ? html`<button class="send" onClick=${() => send()}>${label}</button>` : null}
     ${note ? html`<span class=${`note ${diff && !pending && connected ? "ok" : ""}`}>${note}</span>` : null}</div>`;
 }

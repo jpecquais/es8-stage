@@ -186,3 +186,6 @@ input { font: inherit; color: inherit; }
   .toolbar .send, .toolbar .save { min-height: 46px; }
   .side-foot .sendbox, .side-foot .save-row { display: none; }
 }
+.compare { min-height: 46px; border-radius: 12px; border: 1px solid var(--pending); color: var(--pending); font-weight: 700; font-size: 16px; text-align: center; }
+.toolbar .sendbox { display: flex; gap: 8px; align-items: center; }
+.toolbar .sendbox .compare, .toolbar .sendbox .send { padding: 0 14px; }
