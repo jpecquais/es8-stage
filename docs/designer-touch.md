@@ -76,9 +76,11 @@ Deux natures de données :
 
 Le Designer tactile est la posture « éditer » de l'appli unifiée (docs/unified-app.md).
 
-- **Sounds** : en tête, les rigs ; toucher un rig ouvre ses réglages (patchs de l'ES-8,
-  chaîne de boucles, appareils, programmes, surface, noms de switch, rig de secours),
-  « + New rig » en crée un sur les premiers patchs libres. Un son a ses programmes
+- **Rigs** : la liste des rigs seuls ; toucher un rig montre ses sons (toucher un son l'ouvre,
+  « ‹ rig » y revient), puis le nom que le rig donne à chaque paramètre MIDI (l'alias, affiché
+  sur scène sur le footswitch, avec son CC et ses footswitches, comme dans le Designer de
+  bureau), puis ses réglages (patchs de l'ES-8, chaîne de boucles, appareils, programmes,
+  surface, rig de secours). « + New rig » en crée un sur les premiers patchs libres. Un son a ses programmes
   (celui du rig par défaut, un autre, ou aucun) et son son de secours.
 - **Pedalboard** : un appareil MIDI dit comment il change de programme et nomme ses
   programmes ; supprimer un appareil, une boucle ou un paramètre retire aussi ses

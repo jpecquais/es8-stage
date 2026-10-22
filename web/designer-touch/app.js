@@ -16,7 +16,7 @@ const LOOPS = ["L1", "L2", "L3", "L4", "L5", "L6", "L7", "L8", "V"];
 const SECTIONS = [
   ["pedalboard", "Pedalboard", "M4 4h6v16H4zM14 4h6v16h-6z"],
   ["switches", "Footswitches", "M3 5h18v14H3zM8 10h.01M12 10h.01M16 10h.01M8 14h.01M12 14h.01M16 14h.01"],
-  ["sounds", "Sounds", "M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6"],
+  ["sounds", "Rigs", "M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6"],
   ["songs", "Songs", "M9 18V5l12-2v13M9 18a3 3 0 1 1-6 0 3 3 0 0 1 6 0zM21 16a3 3 0 1 1-6 0 3 3 0 0 1 6 0z"],
   ["setlists", "Setlists & favorites", "M4 6h16M4 12h16M4 18h10"],
   ["settings", "Settings", "M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.6 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.6a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"],
@@ -393,7 +393,7 @@ export function App({ shell, target, nonce } = {}) {
 
   const [dot, text] = snap ? es8Status(snap) : ["", "ES-8"];
   const counts = { setlists: Object.keys(doc.setlists || {}).length, songs: Object.keys(doc.tracks).length,
-    sounds: Object.values(doc.rigs).reduce((n, r) => n + r.snapshots.length, 0), pedalboard: Object.keys(doc.pedalboard.devices).length };
+    sounds: Object.keys(doc.rigs).length, pedalboard: Object.keys(doc.pedalboard.devices).length };
   const marks = { sounds: diffSounds(doc, diff), setlists: diffSetlists(doc, diff) };
   const S = SCREENS[section];
   const wide = section === "switches" || section === "pedalboard";
@@ -474,8 +474,8 @@ function SendBox({ diff, job, connected, changed, send }) {
 }
 
 /** Colonne détail : barre (titre, outils) et formulaire. */
-const Detail = ({ title, tools, children }) => html`
-  <div class="bar"><h1>${title}</h1>${tools}</div>
+const Detail = ({ title, tools, back, children }) => html`
+  <div class="bar">${back ? html`<button class="back" onClick=${back.onTap}>‹ ${back.label}</button>` : null}<h1>${title}</h1>${tools}</div>
   <div class="scroll">${children}</div>`;
 const Empty = ({ text }) => html`<div class="bar"></div><div class="empty">${text}</div>`;
 const EditTool = ({ editing, setEditing }) => html`<button class=${`tool ${editing ? "on" : ""}`} onClick=${() => setEditing(!editing)}>${editing ? "Done" : "Edit"}</button>`;
@@ -647,13 +647,14 @@ function newRig({ edit, select, doc, toast }) {
     d.rigs[id] = { schema: "es8ctl.rig/2", name: "New rig", start: patchAt(start), chain: [], devices: [],
       ...(sf ? { surface: sf } : {}), snapshots: [{ name: "Sound 1", loops: [], params: {} }] };
   });
-  setTimeout(() => select({ rig: id, rigInfo: true }), 0);
+  setTimeout(() => select({ rig: id }), 0);
 }
 
 const Hint = ({ children }) => html`<span class="hint">${children}</span>`;
 
-function RigDetail({ doc, edit, push, select, goTo, rid, toast }) {
+function RigDetail({ doc, edit, push, select, goTo, rid, toast, diff, playing }) {
   const [editChain, setEditChain] = useState(false);
+  const [editSounds, setEditSounds] = useState(false);
   const rig = doc.rigs[rid];
   const set = (fn) => edit((d) => fn(d.rigs[rid]));
   const [a, b] = rigRange(rig);
@@ -663,7 +664,38 @@ function RigDetail({ doc, edit, push, select, goTo, rid, toast }) {
   const backupOf = Object.values(doc.rigs).filter((r) => r.backup === rid).length;
   const params = allParams(doc).filter((x) => !rig.devices || rig.devices.includes(x.did));
   const toolStyle = "color:var(--accent);min-height:36px;text-transform:none;letter-spacing:0;font-size:15px";
+  const surface = (doc.surfaces || {})[rig.surface] || { switches: {} };
+  const switchesOf = (ref) => Object.entries(surface.switches || {}).filter(([, sw]) => sw.role === "param" && sw.param === ref).map(([k]) => swName(k));
+  const addSound = () => {
+    let n = rig.snapshots.length + 1;
+    while (rig.snapshots.some((x) => x.name === `Sound ${n}`)) n += 1;
+    edit((d) => { d.rigs[rid].snapshots.push({ name: `Sound ${n}`, loops: [...(rig.chain || [])], params: {} }); });
+    select({ rig: rid, index: rig.snapshots.length });
+  };
   return html`<${Detail} title=${rig.name}>
+    <${Group} title="Sounds" foot=${`One ES-8 patch per sound, in a row from ${patchOf(rig, 0)}. Moving a sound changes its patch.`}
+      tools=${html`<button class="tool" style=${toolStyle} onClick=${() => setEditSounds(!editSounds)}>${editSounds ? "Done" : "Edit"}</button>`}>
+      <${EditableRows} editing=${editSounds}
+        rows=${rig.snapshots.map((sn, i) => {
+          const midi = Object.values(sn.params || {}).filter((v) => v && v !== "off").length;
+          const now = playing && playing.rid === rid && playing.name === sn.name;
+          return { key: `${i}-${sn.name}`, lead: patchOf(rig, i), title: sn.name, link: true,
+            value: html`${soundDiffers(rig, i, diff) ? html`<span class="pend" title="Differs from the ES-8"></span>` : null}${now ? html`<span class="now">▶</span>` : null}${isFavorite(doc, rid, sn.name) ? "★" : null}`,
+            sub: [(sn.loops || []).join(" ") || "no loop", midi ? `${midi} MIDI` : ""].filter(Boolean).join(" · "),
+            onTap: () => select({ rig: rid, index: i }) };
+        })}
+        onMove=${(x, y) => edit((d) => { d.rigs[rid].snapshots = moved(d.rigs[rid].snapshots, x, y); })}
+        onDelete=${rig.snapshots.length > 1 ? (i) => edit((d) => deleteSound(d, rid, i)) : null} />
+    </${Group}>
+    <${Group}><${Row} cls="action" title="+ New sound" onTap=${addSound} /></${Group}>
+    ${params.length ? html`<${Group} title="Parameter names in this rig" foot="The name this rig gives each MIDI parameter, shown on stage on its footswitch (for example “Drive” instead of “Macro1”). Empty: the parameter's own name.">
+      ${params.map((x) => {
+        const sws = switchesOf(x.ref);
+        return html`<${Row} lead=${`CC${x.p.cc}`} title=${x.p.name} sub=${[x.dev.name, sws.length ? sws.join(" ") : ""].filter(Boolean).join(" · ")}>
+          <input class="text" value=${(rig.aliases || {})[x.ref] || ""} placeholder="Name in this rig"
+            onInput=${(e) => set((r) => { r.aliases = { ...(r.aliases || {}) }; if (e.target.value) r.aliases[x.ref] = e.target.value; else delete r.aliases[x.ref]; if (!Object.keys(r.aliases).length) delete r.aliases; })} /></${Row}>`;
+      })}
+    </${Group}>` : null}
     <${Group} foot="ES-8 patch names are the prefix and the sound's name, shortened to 16 characters.">
       <${NameRow} value=${rig.name} onChange=${(v) => set((r) => { r.name = v; })} />
       <${Row} title="Patch name prefix"><input class="text" value=${rig.short ?? ""} placeholder=${rig.name}
@@ -713,10 +745,6 @@ function RigDetail({ doc, edit, push, select, goTo, rid, toast }) {
         options: [{ value: "", label: "None" }, ...Object.entries(doc.surfaces || {}).map(([id, sf]) => ({ value: id, label: sf.name || id }))],
         onPick: (v) => set((r) => { if (v) r.surface = v; else delete r.surface; }) })} />
     </${Group}>
-    ${params.length ? html`<${Group} title="Switch names" foot="How this rig names each MIDI parameter on stage (for example “Drive” instead of “Macro1”). Empty: the parameter's name.">
-      ${params.map((x) => html`<${Row} title=${x.p.name} sub=${x.dev.name}><input class="text" value=${(rig.aliases || {})[x.ref] || ""} placeholder=${x.p.name}
-        onInput=${(e) => set((r) => { r.aliases = { ...(r.aliases || {}) }; if (e.target.value) r.aliases[x.ref] = e.target.value; else delete r.aliases[x.ref]; })} /></${Row}>`)}
-    </${Group}>` : null}
     <${Group} title="Backup" foot="With Backup on, on stage, every sound of this rig is replaced by a sound of the backup rig (another amp, another path).">
       <${Row} title="Backup rig" value=${rig.backup ? (doc.rigs[rig.backup] || {}).name || rig.backup : "None"} link onTap=${() => push({ kind: "pick", title: "Backup rig", back: rig.name, current: rig.backup || "",
         options: [{ value: "", label: "None" }, ...Object.entries(doc.rigs).filter(([id]) => id !== rid).map(([id, r]) => ({ value: id, label: r.name }))],
@@ -735,7 +763,7 @@ const PatchStepper = ({ value, max, onChange }) => {
     <span>${patchAt(value)}</span><button aria-label="Next patch" onClick=${() => set(value + 1)}>+</button><button aria-label="Next bank" onClick=${() => set(value + 8)}>»</button></span>`;
 };
 
-function SoundDetail({ doc, edit, goTo, push, rid, i, diff, playing, hear, send, connected, jobBusy }) {
+function SoundDetail({ doc, edit, goTo, push, select, rid, i, diff, playing, hear, send, connected, jobBusy }) {
   const rig = doc.rigs[rid];
   const sn = rig.snapshots[i];
   const set = (fn) => edit((d) => fn(d.rigs[rid].snapshots[i]));
@@ -745,7 +773,7 @@ function SoundDetail({ doc, edit, goTo, push, rid, i, diff, playing, hear, send,
   const differs = soundDiffers(rig, i, diff);
   const devices = rigDevices(doc, rig).filter(([, x]) => takesPrograms(x));
   const backupRig = rig.backup && doc.rigs[rig.backup];
-  return html`<${Detail} title=${sn.name}>
+  return html`<${Detail} title=${sn.name} back=${{ label: rig.name, onTap: () => select({ rig: rid }) }}>
     <${Group}><${NameRow} value=${sn.name} onChange=${(v) => edit((d) => { const old = d.rigs[rid].snapshots[i].name; d.rigs[rid].snapshots[i].name = v; renameSound(d, rid, old, v); })} />
       <${Row} title="ES-8 patch" sub=${now ? "Playing now" : ""} value=${html`${differs ? html`<span class="pend"></span>differs · ` : null}${patchOf(rig, i)}`} />
       <${Row} title="★ Favorite" sub="On the home page, one touch away.">
@@ -761,7 +789,7 @@ function SoundDetail({ doc, edit, goTo, push, rid, i, diff, playing, hear, send,
         const dev = loopDevice(doc, l);
         return html`<${Row} lead=${l} title=${dev ? dev.name : "—"}>
           <${Switch} on=${on} onChange=${(v) => set((s) => { s.loops = v ? rig.chain.filter((x) => x === l || (s.loops || []).includes(x)) : (s.loops || []).filter((x) => x !== l); })} /></${Row}>`;
-      }) : html`<${Row} title="This rig's chain has no loop yet" link onTap=${() => goTo("sounds", { rig: rid, rigInfo: true })} />`}
+      }) : html`<${Row} title="This rig's chain has no loop yet" link onTap=${() => goTo("sounds", { rig: rid })} />`}
     </${Group}>
     ${params.length ? html`<${Group} title="MIDI" foot=${now ? "This sound is playing: each change is heard at once." : "Off and On send the parameter's own values; Value sends the number you choose."}>
       ${params.map((x) => {
@@ -932,55 +960,29 @@ const SCREENS = {
   },
 
   sounds: {
-    title: () => "Sounds",
-    tools: (ctx) => html`<${EditTool} ...${ctx} />
-      <button class="tool icon" aria-label="New sound" onClick=${() => {
-        const rid = ctx.sel.rig && ctx.doc.rigs[ctx.sel.rig] ? ctx.sel.rig : Object.keys(ctx.doc.rigs)[0];
-        if (!rid) { newRig(ctx); return; }
-        const rig = ctx.doc.rigs[rid];
-        let n = rig.snapshots.length + 1;
-        while (rig.snapshots.some((s) => s.name === `Sound ${n}`)) n += 1;
-        ctx.edit((d) => { d.rigs[rid].snapshots.push({ name: `Sound ${n}`, loops: [...(rig.chain || [])], params: {} }); });
-        ctx.select({ rig: rid, index: rig.snapshots.length });
-      }}>+</button>`,
-    List({ doc, edit, sel, select, editing, diff, playing }) {
+    title: () => "Rigs",
+    tools: (ctx) => html`<button class="tool icon" aria-label="New rig" onClick=${() => newRig(ctx)}>+</button>`,
+    List({ doc, edit, sel, select, diff }) {
       const ids = Object.keys(doc.rigs);
       const rid = sel.rig && doc.rigs[sel.rig] ? sel.rig : ids[0];
-      const rig = rid && doc.rigs[rid];
       return html`
-        <${Group} title="Rigs" foot="A rig is a group of sounds on consecutive ES-8 patches. Touch a rig for its settings.">
+        <${Group} foot="A rig is a group of sounds on consecutive ES-8 patches. Touch a rig for its sounds.">
           ${ids.map((id) => {
             const r = doc.rigs[id];
             const [a, b] = rigRange(r);
             const pend = r.snapshots.some((_, i) => soundDiffers(r, i, diff));
             return html`<${Row} title=${r.name} sub=${`${plural(r.snapshots.length, "sound")} · ${patchAt(a)} → ${patchAt(b)}`} link
-              current=${id === rid && sel.rigInfo} onTap=${() => select({ rig: id, rigInfo: true })}
-              value=${html`${pend ? html`<span class="pend"></span>` : null}${id === rid && !sel.rigInfo ? html`<span class="check">✓</span>` : null}`} />`;
+              current=${id === rid} onTap=${() => select({ rig: id })} value=${pend ? html`<span class="pend"></span>` : null} />`;
           })}
           <${Row} cls="action" title="+ New rig" onTap=${() => newRig({ edit, select, doc })} />
-        </${Group}>
-        ${rig ? html`<${Group} title=${rig.name} foot=${`One ES-8 patch per sound, in a row from ${patchOf(rig, 0)}. Moving a sound changes its patch.`}>
-          <${EditableRows} editing=${editing}
-            rows=${rig.snapshots.map((sn, i) => {
-              const midi = Object.values(sn.params || {}).filter((v) => v && v !== "off").length;
-              const now = playing && playing.rid === rid && playing.name === sn.name;
-              return { key: `${i}-${sn.name}`, lead: patchOf(rig, i), title: sn.name, link: true,
-                value: html`${soundDiffers(rig, i, diff) ? html`<span class="pend" title="Differs from the ES-8"></span>` : null}${now ? html`<span class="now">▶</span>` : null}${isFavorite(doc, rid, sn.name) ? "★" : null}`,
-                sub: [(sn.loops || []).join(" ") || "no loop", midi ? `${midi} MIDI` : ""].filter(Boolean).join(" · "),
-                current: !sel.rigInfo && sel.index === i && (sel.rig || ids[0]) === rid, onTap: () => select({ rig: rid, index: i }) };
-            })}
-            onMove=${(a, b) => { edit((d) => { d.rigs[rid].snapshots = moved(d.rigs[rid].snapshots, a, b); }); select({ rig: rid, index: follow(sel.index, a, b) }); }}
-            onDelete=${rig.snapshots.length > 1 ? (i) => { edit((d) => deleteSound(d, rid, i)); select({ rig: rid }); } : null} />
-        </${Group}>` : html`<p class="lead-text">No rig yet: + New rig.</p>`}`;
+        </${Group}>`;
     },
     Detail(ctx) {
       const { doc, sel } = ctx;
       const rid = sel.rig && doc.rigs[sel.rig] ? sel.rig : Object.keys(doc.rigs)[0];
-      if (rid && sel.rigInfo) return html`<${RigDetail} ...${ctx} rid=${rid} />`;
-      const rig = rid && doc.rigs[rid];
-      const sn = rig && rig.snapshots[sel.index];
-      if (!sn) return html`<${Empty} text="Choose a sound, or a rig for its settings." />`;
-      return html`<${SoundDetail} ...${ctx} rid=${rid} i=${sel.index} />`;
+      if (!rid) return html`<${Empty} text="No rig yet: + New rig." />`;
+      if (sel.index != null && doc.rigs[rid].snapshots[sel.index]) return html`<${SoundDetail} ...${ctx} rid=${rid} i=${sel.index} />`;
+      return html`<${RigDetail} ...${ctx} rid=${rid} />`;
     },
   },
 
