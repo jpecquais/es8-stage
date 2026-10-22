@@ -42,9 +42,6 @@ input { font: inherit; color: inherit; }
 
 /* ---------------------------------------------------------------- rubriques */
 .side .scroll { gap: 4px; padding: 10px; }
-.side .setname { padding: 6px 8px 14px; }
-.side .setname small { display: block; color: var(--muted); font-size: 13px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; }
-.side .setname b { font: 700 26px/1.1 var(--font-display); }
 .nav { display: flex; align-items: center; gap: 12px; min-height: 52px; padding: 0 12px; border-radius: 10px; font-weight: 600; }
 .nav svg { width: 24px; height: 24px; color: var(--accent); flex: none; }
 .nav .n { margin-left: auto; color: var(--muted); font-weight: 500; font-size: 15px; }

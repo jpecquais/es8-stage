@@ -404,7 +404,6 @@ export function App({ shell, target, nonce } = {}) {
       <div class=${`veil ${sideOpen ? "open" : ""}`} onClick=${() => setSideOpen(false)}></div>
       <aside class=${`col side ${sideOpen ? "open" : ""}`}>
         <div class="scroll">
-          <div class="setname"><small>Set${snap && snap.playing === loaded.name ? " · on stage" : ""}</small><b>${loaded.name}</b></div>
           ${SECTIONS.map(([id, label, d]) => html`
             <button class="nav" aria-current=${section === id ? "true" : null} onClick=${() => goTo(id, sel[id] || {})}>
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d=${d} /></svg>
@@ -810,7 +809,7 @@ const SETTINGS = {
         <${Row} title="ES-8 and stage channels" link current=${sel.midi} onTap=${() => select({ midi: true })} />
       </${Group}>
       <${Group} title="This set">
-        <${Row} title="History" sub=${`Earlier versions of “${setName}”`} link current=${sel.history} onTap=${() => select({ history: true })} />
+        <${Row} title="History" sub="Earlier saved versions" link current=${sel.history} onTap=${() => select({ history: true })} />
       </${Group}>
       <${Group} title="Other tools" foot="They open in place of this app.">
         <${Row} title="ES-8 patches" sub="Every patch and setting of the ES-8, raw (ES8 Control)" link onTap=${go("../control/")} />
