@@ -119,6 +119,26 @@ Une modification touche deux choses, qui ne vont pas à la même vitesse :
 4. **Entendre en réglant** (CC directs, écriture du seul patch en cours).
 5. **L'historique** à la place de la bibliothèque de sets.
 
+## Où on en est (2026-10-22)
+
+Étapes 1 et 2 faites, l'envoi à l'ES-8 reste dans le Designer habituel.
+
+- **`/app/`** (où mène `/`) : `web/app/` monte la Companion (`companion/app.js`) et le
+  Designer tactile (`designer-touch/app.js`), chacun dans son shadow DOM avec sa feuille
+  de style (mêmes noms de classes des deux côtés). Les deux restent montés : la scène suit
+  l'hôte pendant l'édition, l'édition retrouve sa place. `/companion/` et
+  `/designer-touch/` marchent toujours seuls (`window.ES8_SHELL` absent).
+- **✎ Edit** dans la barre de scène ouvre le son joué (le favori s'il y en a un) dans
+  Sounds ; sur l'accueil, il ouvre Setlists & favorites. Entrer en édition relit le set
+  s'il n'y a pas de changement en cours.
+- **Done** enregistre (s'il y a des changements) et revient au jeu, avec un message ;
+  le retour du navigateur revient au jeu sans enregistrer (les changements restent).
+- **Enregistrer le set joué** (`PUT /library/projects/<nom>`, `restage` dans `http.py`,
+  `StageServer.project_saved`) : le Pi recalcule le show. Mêmes tables de PC et même
+  canal → la scène le joue tout de suite, à la même place, sans rien envoyer
+  (`"playing"`) ; sinon elle garde l'ancien (`"send"`) jusqu'à « Send to stage ».
+  Réponse `{"stage": "playing" | "unchanged" | "send" | "invalid"}`.
+
 ## Questions ouvertes
 
 - Faut-il pouvoir éditer **pendant** un concert (régler un son entre deux

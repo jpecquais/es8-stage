@@ -145,7 +145,19 @@ function EditableRows({ rows, editing, onMove, onDelete }) {
 
 let toastTimer = null;
 
-function App() {
+/** Ce qu'enregistrer le set joué a fait sur la scène (réponse du PUT : {stage}), dit à l'utilisateur. */
+const SAVED = {
+  playing: "Saved. The stage plays it now.",
+  unchanged: "Saved.",
+  send: "Saved. The ES-8 must be updated before the stage plays it: Send to stage, in the regular Designer.",
+  invalid: "Saved, but the set has a problem: the stage keeps the previous version.",
+};
+
+/**
+ * `shell` : posé par l'appli unifiée (web/app/) ; « Done » enregistre et rend la main au jeu. `target`,
+ * à chaque ✎ (`nonce` change), ouvre ce qui est joué : {section, rig | rigName, sound} ou {section}.
+ */
+export function App({ shell, target, nonce } = {}) {
   const [loaded, setLoaded] = useState(null);
   const [doc, setDoc] = useState(null);
   const [error, setError] = useState("");
@@ -158,17 +170,22 @@ function App() {
   const [sideOpen, setSideOpen] = useState(false);
   const [msg, setMsg] = useState("");
 
+  const cur = useRef({});
+  cur.current = { doc, loaded };
+  const open = async () => {
+    try {
+      const listing = await (await fetch("../library/", { cache: "no-store" })).json();
+      const name = listing.playing || (listing.projects[0] || {}).name;
+      if (!name) throw new Error("No set in the library yet.");
+      const d = await (await fetch(`../library/projects/${encodeURIComponent(name)}`, { cache: "no-store" })).json();
+      setLoaded({ name, doc: d });
+      setDoc(clone(d));
+      setError("");
+    } catch (err) { setError(err.message || String(err)); }
+  };
+
   useEffect(() => {
-    (async () => {
-      try {
-        const listing = await (await fetch("../library/", { cache: "no-store" })).json();
-        const name = listing.playing || (listing.projects[0] || {}).name;
-        if (!name) throw new Error("No set in the library yet.");
-        const d = await (await fetch(`../library/projects/${encodeURIComponent(name)}`, { cache: "no-store" })).json();
-        setLoaded({ name, doc: d });
-        setDoc(clone(d));
-      } catch (err) { setError(err.message || String(err)); }
-    })();
+    open();
     let events = null;
     fetch("../stage/state", { cache: "no-store" }).then((r) => (r.ok ? r.json() : null)).then((s) => {
       if (!s) return;
@@ -179,10 +196,31 @@ function App() {
     return () => events && events.close();
   }, []);
 
+  // ✎ dans le jeu : relit le set s'il n'y a rien en cours ici (il a pu changer ailleurs), puis ouvre ce qui est joué.
+  useEffect(() => {
+    if (!nonce) return;
+    const { doc: d, loaded: l } = cur.current;
+    if (l && JSON.stringify(d) === JSON.stringify(l.doc)) open();
+    setEditing(false);
+    setStack([]);
+  }, [nonce]);
+  useEffect(() => {
+    if (!nonce || !doc || !target) return;
+    let patch = {};
+    if (target.section === "sounds") {
+      const rid = doc.rigs[target.rig] ? target.rig : Object.keys(doc.rigs).find((id) => doc.rigs[id].name === target.rigName);
+      const index = rid ? doc.rigs[rid].snapshots.findIndex((x) => x.name === target.sound) : -1;
+      if (rid) patch = index >= 0 ? { rig: rid, index } : { rig: rid };
+    }
+    setSection(target.section);
+    setSel((x) => ({ ...x, [target.section]: patch }));
+    setSideOpen(false);
+  }, [nonce, loaded && loaded.name]);
+
   if (error) return html`<div class="loading">${error}</div>`;
   if (!doc) return html`<div class="loading">Loading the set…</div>`;
 
-  const toast = (t) => { setMsg(t); clearTimeout(toastTimer); toastTimer = setTimeout(() => setMsg(""), 2600); };
+  const toast = (t, ms = 2600) => { setMsg(t); clearTimeout(toastTimer); toastTimer = setTimeout(() => setMsg(""), ms); };
   const edit = (fn) => setDoc((d) => { const next = clone(d); fn(next); return next; });
   const select = (patch) => { setSel((s) => ({ ...s, [section]: patch })); setStack([]); };
   const goTo = (sec, patch) => { setSection(sec); setSel((s) => ({ ...s, [sec]: patch })); setStack([]); setEditing(false); setSideOpen(false); };
@@ -190,15 +228,23 @@ function App() {
   const pop = () => setStack((s) => s.slice(0, -1));
   const ctx = { doc, edit, sel: sel[section] || {}, select, goTo, push, pop, editing, setEditing, toast };
   const changed = JSON.stringify(doc) !== JSON.stringify(loaded.doc);
+  /** Enregistre le set ; rend le message à montrer, ou null si rien n'a été enregistré. */
   const save = async () => {
     setSaving(true);
     try {
       const res = await fetch(`../library/projects/${encodeURIComponent(loaded.name)}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(doc) });
       if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || `error ${res.status}`);
+      const out = res.status === 200 ? await res.json().catch(() => ({})) : {}; // set joué : ce qu'en fait la scène
       setLoaded({ name: loaded.name, doc: clone(doc) });
-      toast("Saved. Send to stage to give it to the Companion.");
-    } catch (err) { toast(`Not saved: ${err.message}`); }
-    setSaving(false);
+      return SAVED[out.stage] || "Saved. Send to stage to give it to the Companion.";
+    } catch (err) { toast(`Not saved: ${err.message}`); return null; }
+    finally { setSaving(false); }
+  };
+  const saveHere = async () => { const t = await save(); if (t) toast(t, t.length > 40 ? 6000 : 2600); };
+  const done = async () => {
+    if (!changed) { shell.done(); return; }
+    const t = await save();
+    if (t) shell.done(t);
   };
   const [dot, text] = snap ? es8Status(snap) : ["", "ES-8"];
   const counts = { setlists: Object.keys(doc.setlists || {}).length, songs: Object.keys(doc.tracks).length,
@@ -220,13 +266,15 @@ function App() {
         </div>
         <div class="side-foot">
           <span class="status"><span class=${`dot ${dot}`}></span>${text}</span>
-          ${changed ? html`<button class="save" disabled=${saving} onClick=${save}>${saving ? "Saving…" : "Save"}</button>` : null}
-          <span class="proto">Prototype. Send to stage is in the regular Designer for now.${changed ? html` <button onClick=${() => { setDoc(clone(loaded.doc)); setStack([]); }}>Undo all</button>` : null}
-            · <a href="../designer/">Regular Designer</a></span>
+          ${changed ? html`<button class="save" disabled=${saving} onClick=${saveHere}>${saving ? "Saving…" : "Save"}</button>` : null}
+          <span class="proto">${shell ? "Sending to the ES-8 is still in the regular Designer." : "Prototype. Send to stage is in the regular Designer for now."}${changed
+            ? html` <button onClick=${() => { setDoc(clone(loaded.doc)); setStack([]); }}>Undo all</button>` : null}
+            · <a href="../designer/">Regular Designer</a>${shell ? html` · <a href="../control/">ES-8 patches</a> · <a href="../host/">Stage host</a>` : null}</span>
         </div>
       </aside>
       <section class="col">
         <div class="bar">
+          ${shell ? html`<button class="tool done" disabled=${saving} onClick=${done} title=${changed ? "Save and go back to playing" : "Go back to playing"}>${saving ? "Saving…" : "Done"}</button>` : null}
           <button class="tool icon menu-btn" aria-label="Sections" onClick=${() => setSideOpen(true)}>☰</button>
           <h1>${S.title(ctx)}</h1>
           ${S.tools ? S.tools(ctx) : null}
@@ -624,4 +672,4 @@ function FavoritesDetail({ doc, edit, push, goTo }) {
 
 SCREENS.setlists = SETLISTS;
 
-render(html`<${App} />`, document.getElementById("root"));
+if (!window.ES8_SHELL) render(html`<${App} />`, document.getElementById("root")); // page seule

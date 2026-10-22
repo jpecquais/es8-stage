@@ -1,0 +1,12 @@
+{
+  "name": "ES8 Stage",
+  "short_name": "ES8 Stage",
+  "description": "Play and edit the set of a BOSS ES-8, on the stage host.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#0f100d",
+  "theme_color": "#0f100d",
+  "icons": [{"src": "../companion/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any"}]
+}

@@ -25,6 +25,7 @@ const ICONS = {
   left: "M15 18l-6-6 6-6", right: "M9 18l6-6-6-6", down: "M6 9l6 6 6-6", close: "M18 6L6 18M6 6l12 12",
   list: "M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01", menu: "M4 6h16M4 12h16M4 18h16",
   home: "M3 11l9-8 9 8M5 9v11h5v-6h4v6h5V9",
+  edit: "M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z",
 };
 const Icon = ({ name, size = 20 }) => html`
   <svg width=${size} height=${size} viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"
@@ -54,7 +55,7 @@ function useKeepAwake(on) {
       return () => { stopped = true; document.removeEventListener("visibilitychange", onVisible); if (lock) lock.release().catch(() => {}); };
     }
     const video = document.createElement("video");
-    video.src = "keepawake.mp4";
+    video.src = new URL("keepawake.mp4", import.meta.url).href; // aussi depuis l'appli unifiée (/app/)
     video.loop = true;
     video.playsInline = true;
     video.setAttribute("playsinline", "");
@@ -84,7 +85,8 @@ function useKeepAwake(on) {
 
 // ---------------------------------------------------------------- app
 
-function App() {
+/** `shell` : posé par l'appli unifiée (web/app/), qui passe en édition par `shell.edit(cible)`. */
+export function App({ shell } = {}) {
   const boot = useRef(null);
   if (boot.current === null) boot.current = loadStore();
   const [snap, setSnap] = useState(null); // état poussé par l'hôte : show, pos, states, backup, traffic, midi, edit, check…
@@ -100,7 +102,7 @@ function App() {
 
   // Le callback du clavier est posé une fois : il lit l'état ici.
   const live = useRef({});
-  live.current = { keys, prefs, learning };
+  live.current = { keys, prefs, learning, shell };
 
   useEffect(() => saveStore({ prefs, keys }), [prefs, keys]);
   const setPref = (patch) => setPrefs((p) => ({ ...p, ...patch }));
@@ -149,8 +151,10 @@ function App() {
   useEffect(() => {
     const onKey = (e) => {
       if (e.repeat || e.metaKey || e.ctrlKey || e.altKey) return;
-      if (e.target.closest && e.target.closest("input, select, textarea")) return;
       const L = live.current;
+      if (L.shell && !L.shell.playing()) return; // l'appli unifiée est en édition
+      const target = e.composedPath ? e.composedPath()[0] : e.target; // un champ dans un shadow DOM
+      if (target.closest && target.closest("input, select, textarea")) return;
       if (L.learning) {
         e.preventDefault();
         if (e.key !== "Escape") setKeys((k) => S.learn(k, L.learning, S.eventFromKey(e.key)));
@@ -181,7 +185,7 @@ function App() {
     snap, show: snap.show, pos: snap.pos, states: snap.states || {}, backup: !!snap.backup,
     traffic: snap.traffic || { in: "", action: "", out: "" }, link, move, prefs, setPref, keys, setKeys, learning, setLearning,
     act, goTo, favorite: (index) => post({ type: "favorite", index }), resend: () => post({ type: "resend" }), press: (key, down) => post({ type: "press", key, down }),
-    setScreen, songsOpen, setSongsOpen, browse, setBrowse, awake,
+    setScreen, songsOpen, setSongsOpen, browse, setBrowse, awake, shell,
   };
   if (screen === "menu" || !snap.show) return html`<${Menu} ...${ctx} />`;
   if (screen === "home") return html`<${Home} ...${ctx} />`;
@@ -215,6 +219,22 @@ function ES8Chip({ snap, setScreen }) {
   return html`<button class="chip es8-chip" onClick=${() => setScreen("menu")} title=${m.port || ""}>
     <span class=${`dot ${dot}`}></span><span class="chip-text">${text}</span></button>`;
 }
+
+// ---------------------------------------------------------------- édition (appli unifiée)
+
+/** Ce que ✎ ouvre en édition : le son joué (le favori, ou le pas de la setlist), avec son morceau. */
+function editTarget(snap, show, pos) {
+  const fav = snap.favorite != null && (show.favorites || [])[snap.favorite];
+  if (fav) return { section: "sounds", rigName: fav.rig, sound: fav.name };
+  const sl = show.setlists[pos.setlist];
+  const step = sl.steps[pos.step];
+  const song = sl.songs[step.song];
+  return { section: "sounds", rig: song.rig, sound: step.snapshot, song: song.name };
+}
+
+const EditButton = ({ shell, target, label = "Edit" }) => html`
+  <button class="chip edit-btn" onClick=${() => shell.edit(target)} title="Edit what is playing">
+    <${Icon} name="edit" size=${18} /><span class="chip-text">${label}</span></button>`;
 
 // ---------------------------------------------------------------- scène
 
@@ -288,7 +308,7 @@ function SwitchStage(ctx) {
     </div>`;
 }
 
-function StatusBar({ snap, show, pos, traffic, setScreen, backup, act, prefs, setPref, link }) {
+function StatusBar({ snap, show, pos, traffic, setScreen, backup, act, prefs, setPref, link, shell }) {
   const sl = show.setlists[pos.setlist];
   return html`
     <header class="bar">
@@ -308,6 +328,7 @@ function StatusBar({ snap, show, pos, traffic, setScreen, backup, act, prefs, se
       ${link === "ok" ? html`<${ES8Chip} snap=${snap} setScreen=${setScreen} />` : html`<span class="chip"><span class="dot bad"></span><span class="chip-text">Host lost</span></span>`}
       <button class=${`chip backup-btn ${backup ? "on" : ""}`} aria-pressed=${backup} onClick=${() => act("backup")}
         title="Switch every step to its backup patch, or back">Backup</button>
+      ${shell ? html`<${EditButton} shell=${shell} target=${editTarget(snap, show, pos)} />` : null}
       <button class="icon-btn" aria-label="Menu" onClick=${() => setScreen("menu")}><${Icon} name="menu" /></button>
     </header>`;
 }
@@ -440,7 +461,7 @@ function SongList({ show, pos, goTo, setSongsOpen, setScreen, v }) {
  * L'accueil : les sons favoris, rappelés d'un geste (jam, réglage, balance), puis les setlists.
  * Toucher la setlist en cours y retourne sans rien envoyer ; une autre la démarre à son premier pas.
  */
-function Home({ snap, show, pos, goTo, favorite, setScreen, link }) {
+function Home({ snap, show, pos, goTo, favorite, setScreen, link, shell }) {
   const favs = show.favorites || [];
   const playingFav = snap.favorite;
   const open = (k) => {
@@ -453,6 +474,7 @@ function Home({ snap, show, pos, goTo, favorite, setScreen, link }) {
         <h1 class="page-title">ES8 Stage</h1>
         <span class="spacer"></span>
         ${link === "ok" ? html`<${ES8Chip} snap=${snap} setScreen=${setScreen} />` : html`<span class="chip"><span class="dot bad"></span><span class="chip-text">Host lost</span></span>`}
+        ${shell ? html`<${EditButton} shell=${shell} target=${{ section: "setlists" }} />` : null}
         <button class="icon-btn" aria-label="Menu" onClick=${() => setScreen("menu")}><${Icon} name="menu" /></button>
       </header>
       <div class="page-body">
@@ -462,7 +484,7 @@ function Home({ snap, show, pos, goTo, favorite, setScreen, link }) {
           ${favs.length ? html`<div class="favs">${favs.map((f, i) => html`
             <button class=${`fav ${playingFav === i ? "current" : ""}`} aria-pressed=${playingFav === i} onClick=${() => favorite(i)}>
               <span class="fav-name">${f.name}</span><span class="small">${f.rig} · ${f.label}</span></button>`)}</div>`
-          : html`<p class="muted">No favorites yet. In ES8 Designer, star the sounds you want here.</p>`}
+          : html`<p class="muted">No favorites yet. ${shell ? "Edit, then star the sounds you want here." : "In ES8 Designer, star the sounds you want here."}</p>`}
         </section>
         <section class="home-group">
           <h2 class="eyebrow">Setlists</h2>
@@ -658,5 +680,7 @@ function NoHost({ link }) {
     </div>`;
 }
 
-render(html`<${App} />`, document.getElementById("root"));
-mountNav("companion");
+if (!window.ES8_SHELL) { // page seule ; dans l'appli unifiée, c'est elle qui monte la Companion
+  render(html`<${App} />`, document.getElementById("root"));
+  mountNav("companion");
+}

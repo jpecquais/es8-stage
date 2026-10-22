@@ -134,6 +134,18 @@ def make_server(port: int, lan: bool = False, host=None, data: Path | None = Non
             engine.update(key=key, zip=engine_zip())
         return engine["zip"]
 
+    def restage(name: str, data: bytes) -> str:
+        """Le set joué vient d'être enregistré : son show, recalculé, est joué tout de suite quand l'ES-8 n'a
+        rien à changer (stage_server.project_saved). Rend "playing", "unchanged", "send" ou "invalid"."""
+        from es8stage.model import ModelError, export_show, project_from_doc
+
+        try:
+            show = export_show(project_from_doc(json.loads(data)))
+        except (ModelError, ValueError, KeyError, TypeError):
+            return "invalid"
+        blob = json.dumps(show).encode()
+        return host.project_saved(show, lambda: library.write("shows", name, blob))
+
     class Handler(http.server.SimpleHTTPRequestHandler):
         # ------------------------------------------------------------ outils
         def _reply(self, code: int, body: bytes = b"", kind: str = "application/json"):
@@ -224,6 +236,8 @@ def make_server(port: int, lan: bool = False, host=None, data: Path | None = Non
                     if data is None:
                         raise LibraryError("Empty or too large.", 413)
                     library.write(kind, name, data, replace="new" not in query)
+                    if host is not None and kind == "projects" and library.playing() == name:
+                        return self._reply(200, json.dumps({"stage": restage(name, data)}).encode())
                 elif method == "DELETE":
                     if not self._authed():
                         raise LibraryError("Deleting needs the host password: log in on the host page (/host/).", 401)
@@ -370,7 +384,7 @@ def make_server(port: int, lan: bool = False, host=None, data: Path | None = Non
             route = self.path.split("?")[0]
             if route == "/":
                 self.send_response(302)
-                self.send_header("Location", "/companion/")
+                self.send_header("Location", "/app/")  # ES8 Stage : jouer et éditer (docs/unified-app.md)
                 self.send_header("Content-Length", "0")
                 return self.end_headers()
             if route.startswith("/library/"):

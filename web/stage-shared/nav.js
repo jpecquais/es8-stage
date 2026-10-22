@@ -5,7 +5,7 @@
 
 const BASE = new URL("../", import.meta.url); // racine du serveur
 export const APPS = [
-  ["companion", "Companion"],
+  ["app", "Play & edit"], // l'appli unifiée (web/app/) : la Companion et le Designer tactile
   ["designer", "Designer"],
   ["control", "Control"],
   ["host", "Stage host"],
@@ -65,7 +65,7 @@ function paint(snap) {
   bar.querySelector(".sn-es8").title = text;
 }
 
-/** Pose le bandeau en haut de la page si un hôte de scène la sert ; `current` : companion|designer|control|host. */
+/** Pose le bandeau en haut de la page si un hôte de scène la sert ; `current` : app|companion|designer|control|host. */
 export async function mountNav(current) {
   if (bar) return;
   let res;
@@ -79,7 +79,7 @@ export async function mountNav(current) {
   bar.setAttribute("aria-label", "ES8 Stage");
   const link = ([id, label]) => `<a href="${new URL(`${id}/`, BASE).href}"${id === current ? ' aria-current="page"' : ""}>${label}</a>`;
   bar.innerHTML = `<span class="sn-brand">ES8 Stage</span>${APPS.map(link).join("")}<span class="sn-grow"></span>
-    <a class="sn-es8" href="${new URL("companion/?view=menu", BASE).href}"><span class="sn-dot"></span><span class="sn-es8-text"></span></a>`;
+    <a class="sn-es8" href="${new URL("app/?view=menu", BASE).href}"><span class="sn-dot"></span><span class="sn-es8-text"></span></a>`;
   document.body.prepend(bar);
   setNavHidden(hidden);
   try { paint(await res.json()); } catch { /* état illisible : le flux suit */ }

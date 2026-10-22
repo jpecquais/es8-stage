@@ -144,3 +144,6 @@ input { font: inherit; color: inherit; }
   .board { grid-template-columns: repeat(6, minmax(0, 1fr)); }
   .loops { grid-template-columns: repeat(5, minmax(0, 1fr)); }
 }
+
+/* Appli unifiée (web/app/) : « Done » rend la main au jeu */
+.bar .tool.done { background: var(--accent); color: #fff; }

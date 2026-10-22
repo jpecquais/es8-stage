@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="color-scheme" content="dark">
+  <meta name="theme-color" content="#0f100d">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black">
+  <meta name="apple-mobile-web-app-title" content="ES8 Stage">
+  <title>ES8 Stage</title>
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="../companion/icon.svg" type="image/svg+xml">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600;700&family=Barlow+Condensed:wght@600;700&family=JetBrains+Mono:wght@500&display=swap">
+  <style>
+    html, body { margin: 0; background: #0f100d; color: #f3f1ea; }
+    body.editing { background: #0c0d0f; overflow: hidden; }
+    #edit { position: fixed; inset: 0; }
+    #play[hidden], #edit[hidden] { display: none; } /* plus fort que le :host de chaque appli */
+    .shell-toast { position: fixed; left: 50%; bottom: 28px; transform: translateX(-50%); z-index: 100; max-width: min(640px, calc(100vw - 32px));
+      padding: 14px 20px; border-radius: 14px; background: #26282d; border: 1px solid #2b2d33; box-shadow: 0 10px 30px #000a;
+      font: 600 16px/1.35 "Barlow", system-ui, sans-serif; color: #f1f2f4; }
+    .shell-toast[hidden] { display: none; }
+  </style>
+  <script>window.ES8_SHELL = true; // les deux applis se laissent monter par celle-ci (app.js)</script>
+</head>
+<body>
+  <div id="play"></div>
+  <div id="edit" hidden></div>
+  <div class="shell-toast" role="status" hidden></div>
+  <script type="module" src="app.js"></script>
+</body>
+</html>

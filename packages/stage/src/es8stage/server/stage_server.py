@@ -80,6 +80,32 @@ class StageServer:
         """Le fichier show vient d'être remplacé (POST /stage/show.json) : le recharger."""
         self._load_show()
 
+    def project_saved(self, show: dict, install) -> str:
+        """Le set joué vient d'être enregistré (docs/unified-app.md) ; `show` est recalculé de ce projet.
+
+        Si l'ES-8 n'a rien à changer (mêmes tables de PC, même canal), le show est joué tout de suite, à
+        la même place : `install()` l'écrit, rien n'est envoyé. Sinon la scène garde l'ancien jusqu'à
+        l'envoi à l'ES-8. Rend "playing", "unchanged" ou "send".
+        """
+        bare = lambda s: {k: v for k, v in s.items() if k != "exported"}  # noqa: E731
+        favs = lambda s, i: [f["label"] for f in s.get("favorites") or []][i:i + 1]  # noqa: E731
+        with self.lock:
+            st, cur = self.stage, self.stage.show
+            if cur is None or check_show(show) or self._check_key(show) != self._check_key(cur) \
+                    or (show.get("es8") or {}).get("rx_channel") != (cur.get("es8") or {}).get("rx_channel"):
+                return "send"
+            if bare(show) == bare(cur):
+                return "unchanged"
+            pos, backup, fav = st.pos, st.backup, st.favorite
+            install()
+            self._show_mtime = self.show_file.stat().st_mtime_ns
+            st.backup = backup
+            st.load(show, pos)  # mêmes setlists, mêmes pas : la place reste juste
+            if fav is not None and favs(show, fav) == favs(cur, fav):
+                st.favorite = fav  # l'ES-8 joue toujours ce favori
+                st.changed()
+        return "playing"
+
     def _save(self) -> None:
         st = self.stage
         if not st.show:
@@ -405,7 +431,9 @@ class StageServer:
             self._last_ble = time.monotonic()
             self._ble_reconnect()
         if self.show_file.is_file() and self.show_file.stat().st_mtime_ns != self._show_mtime:
-            self._load_show()
+            with self.lock:  # project_saved l'installe peut-être en ce moment, sous le même verrou
+                if self.show_file.stat().st_mtime_ns != self._show_mtime:
+                    self._load_show()
         self._edit_idle()
         self._auto_check()
 

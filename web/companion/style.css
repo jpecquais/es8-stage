@@ -367,3 +367,7 @@ a.primary { color: var(--on-next); }
 .home-row .song-text { flex: 1; }
 .home-row.current { background: var(--now-soft); }
 .home-row.current .song-name { color: var(--now); }
+
+/* ---------------------------------------------------------------- appli unifiée : ✎ passe en édition */
+.chip.edit-btn { min-height: 44px; background: none; color: var(--ink); border-color: var(--line-hi); }
+@media (max-width: 700px) { .edit-btn .chip-text { display: none; } }

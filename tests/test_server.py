@@ -32,10 +32,10 @@ def request(srv, method, path, body=None, headers=None):
 
 
 def test_serves_both_repositories_apps(server):
-    for path in ("/designer/", "/companion/", "/host/", "/stage-shared/bridge.js", "/control/", "/shared/engine.js"):
+    for path in ("/app/", "/designer/", "/companion/", "/host/", "/stage-shared/bridge.js", "/control/", "/shared/engine.js"):
         assert request(server, "GET", path)[0] == 200, path
     status, _, res = request(server, "GET", "/")
-    assert status == 302 and res.getheader("Location") == "/companion/"
+    assert status == 302 and res.getheader("Location") == "/app/"
     page = request(server, "GET", "/control/")[1].decode()
     assert page.index("stage-shared/control.js") < page.index('src="app.js"')  # le pont avant l'appli
 
@@ -85,6 +85,49 @@ def test_stage_state_names_the_set_played(tmp_path):
         assert request(srv, "POST", "/library/shows/PULSE", {"op": "rename", "to": "PULSE live"})[0] == 204
         assert host.version > version  # les écrans reçoivent le nouveau nom
         assert json.loads(request(srv, "GET", "/stage/state")[1])["playing"] == "PULSE live"
+    finally:
+        srv.shutdown()
+        srv.server_close()
+
+
+def test_saving_the_set_played_updates_the_stage_when_the_es8_has_nothing_to_change(tmp_path):
+    """Une seule appli (docs/unified-app.md) : enregistrer le set joué le donne à la scène, à la même place,
+    tant que l'ES-8 n'a rien à changer ; un nouvel ordre attend l'envoi à l'ES-8."""
+    from test_rig_model import project_doc
+
+    from es8stage.model import export_show, project_from_doc
+    from es8stage.server.stage_server import StageServer
+
+    host = StageServer(tmp_path / "show.json", log=lambda m: None)
+    srv = make_server(0, data=tmp_path, host=host)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    try:
+        doc = project_doc()
+        assert request(srv, "PUT", "/library/projects/PULSE", doc)[0] == 204  # pas joué : rien d'autre
+        request(srv, "PUT", "/library/shows/PULSE", export_show(project_from_doc(doc)))
+        request(srv, "POST", "/library/shows/PULSE", {"op": "play"})
+        host.stage.act("next")
+        assert host.stage.pos["step"] == 1
+
+        def save(d):
+            status, body, _ = request(srv, "PUT", "/library/projects/PULSE", d)
+            assert status == 200
+            return json.loads(body)["stage"]
+
+        assert save(doc) == "unchanged"
+        doc["setlists"]["nov"]["name"] = "November"
+        doc["favorites"] = [{"rig": "crunch", "sound": "Chorus"}]
+        assert save(doc) == "playing"
+        snap = json.loads(request(srv, "GET", "/stage/state")[1])
+        assert snap["show"]["setlists"][0]["name"] == "November" and snap["show"]["favorites"][0]["name"] == "Chorus"
+        assert snap["pos"]["step"] == 1  # la scène n'a pas bougé
+        host._midi_round()  # le fichier a changé, mais c'est déjà le show joué
+        assert host.stage.pos["step"] == 1
+        doc["setlists"]["nov"]["songs"][0]["sequence"] = ["Chorus", "Intro"]  # d'autres PC : l'ES-8 doit changer
+        assert save(doc) == "send"
+        assert host.stage.show["setlists"][0]["steps"][0]["snapshot"] == "Intro"
+        doc["rigs"]["crunch"]["snapshots"] = []
+        assert save(doc) == "invalid"
     finally:
         srv.shutdown()
         srv.server_close()
