@@ -181,7 +181,7 @@ const SAVED = {
   playing: "Saved. The stage plays it now.",
   unchanged: "Saved.",
   send: "Saved. The ES-8 must be updated before the stage plays it: Send to the ES-8.",
-  invalid: "Saved, but the set has a problem: the stage keeps the previous version.",
+  invalid: "Saved, but something is wrong: the stage keeps the previous version.",
 };
 const PHASES = { start: "Starting", read: "Reading the ES-8", refresh: "Reading the ES-8", send: "Writing", resend: "Writing again" };
 
@@ -252,7 +252,7 @@ export function App({ shell, target, nonce } = {}) {
     try {
       const listing = await (await fetch("../library/", { cache: "no-store" })).json();
       const name = listing.playing || (listing.projects[0] || {}).name;
-      if (!name) throw new Error("No set in the library yet.");
+      if (!name) throw new Error("Nothing saved on the stage host yet.");
       const res = await fetch(`../library/projects/${encodeURIComponent(name)}`, { cache: "no-store" });
       const d = normalize(await res.json());
       setLoaded({ name, doc: d, etag: (res.headers.get("ETag") || "").replace(/"/g, "") || null });
@@ -325,7 +325,7 @@ export function App({ shell, target, nonce } = {}) {
   }, [jobBusy]);
 
   if (error) return html`<div class="loading">${error}</div>`;
-  if (!doc) return html`<div class="loading">Loading the set…</div>`;
+  if (!doc) return html`<div class="loading">Loading…</div>`;
 
   const toast = (t, ms = 2600) => { setMsg(t); clearTimeout(toastTimer); toastTimer = setTimeout(() => setMsg(""), ms); };
   const remember = (d, merge) => {
@@ -360,7 +360,7 @@ export function App({ shell, target, nonce } = {}) {
       const res = await fetch(`../library/projects/${encodeURIComponent(loaded.name)}`, { method: "PUT", headers, body: JSON.stringify(doc) });
       if (res.status === 412) { // un autre écran l'a changé depuis qu'on l'a ouvert
         setSaving(false);
-        if (confirm("This set was changed on another screen since you opened it.\n\nOK: replace it with your version.\nCancel: keep the other version (choose next).")) return save(true);
+        if (confirm("Another screen saved changes since you opened Edit.\n\nOK: replace it with your version.\nCancel: keep the other version (choose next).")) return save(true);
         if (confirm("Load the other version? Your changes here are lost.")) { await open(); setStack([]); }
         return null;
       }
@@ -378,7 +378,7 @@ export function App({ shell, target, nonce } = {}) {
   };
   /** « Send to the ES-8 » (tout) ou un seul patch (`only`, « 3-1 ») : enregistre d'abord, puis l'hôte écrit. */
   const send = async (only, compare = false) => {
-    if (!only && !compare && !confirm(`Write ${diff && diff.count ? plural(diff.count, "change") : "this set"} to the ES-8?\n\nThe footswitches pause while it writes (from a few seconds to a minute), then the stage plays the new version where it was.`)) return;
+    if (!only && !compare && !confirm(`Write ${diff && diff.count ? plural(diff.count, "change") : "everything"} to the ES-8?\n\nThe footswitches pause while it writes (from a few seconds to a minute), then the stage plays the new version where it was.`)) return;
     if (changed && !(await save())) return;
     const res = await fetch("../stage/send", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ project: loaded.name, only: only || null, compare }) });
     if (res.ok) mine.current = true;
@@ -461,12 +461,12 @@ function SendBox({ diff, job, connected, changed, send }) {
     return html`<div class="sendbox busy"><span>${job.kind === "backup" ? "Backing up the ES-8" : job.kind === "restore" ? "Restoring the ES-8" : PHASES[job.phase] || job.phase}…</span>
       <span class="meter"><span style=${`width:${pct}%`}></span></span></div>`;
   }
-  if (diff && diff.problems) return html`<div class="sendbox warn">The set has a problem: ${diff.problems[0]}</div>`;
+  if (diff && diff.problems) return html`<div class="sendbox warn">Can't send: ${diff.problems[0]}</div>`;
   const pending = diff && diff.count;
   const label = pending ? `Send to the ES-8 · ${pending}` : "Send to the ES-8";
   const note = !connected ? "The ES-8 is not connected."
     : diff && diff.unknown ? "Not compared yet: comparing only reads the ES-8."
-      : diff && !pending ? "The ES-8 matches this set." : "";
+      : diff && !pending ? "The ES-8 matches." : "";
   return html`<div class="sendbox">
     ${connected && diff && diff.unknown ? html`<button class="compare" onClick=${() => send(null, true)}>Compare with the ES-8</button>` : null}
     ${connected && (pending || (diff && diff.unknown) || !diff) ? html`<button class="send" onClick=${() => send()}>${label}</button>` : null}
@@ -808,8 +808,8 @@ const SETTINGS = {
       <${Group} title="MIDI">
         <${Row} title="ES-8 and stage channels" link current=${sel.midi} onTap=${() => select({ midi: true })} />
       </${Group}>
-      <${Group} title="This set">
-        <${Row} title="History" sub="Earlier saved versions" link current=${sel.history} onTap=${() => select({ history: true })} />
+      <${Group} title="Saved versions">
+        <${Row} title="History" sub="Go back to an earlier save" link current=${sel.history} onTap=${() => select({ history: true })} />
       </${Group}>
       <${Group} title="Other tools" foot="They open in place of this app.">
         <${Row} title="ES-8 patches" sub="Every patch and setting of the ES-8, raw (ES8 Control)" link onTap=${go("../control/")} />
@@ -831,7 +831,7 @@ function MidiSettings({ doc, edit }) {
     <${Group} title="ES-8" foot="The channel on which the ES-8 receives the program changes of the setlist (its MIDI Rx channel).">
       <${Row} title="Receives on channel"><${Stepper} value=${c.es8_channel} min=${1} max=${16} onChange=${put("es8_channel")} /></${Row}>
     </${Group}>
-    <${Group} title="Footswitches handled by the stage" foot=${`Footswitches set to move through the set, or to switch a MIDI parameter, send a control change to the stage on this channel: CC ${c.first_cc} for NUM1, then one per switch. No device may use this channel.`}>
+    <${Group} title="Footswitches handled by the stage" foot=${`Footswitches set to move through the setlist, or to switch a MIDI parameter, send a control change to the stage on this channel: CC ${c.first_cc} for NUM1, then one per switch. No device may use this channel.`}>
       <${Row} title="Channel"><${Stepper} value=${c.channel} min=${1} max=${16} onChange=${put("channel")} /></${Row}>
       <${Row} title="First CC"><${Stepper} value=${c.first_cc} min=${0} max=${112} onChange=${put("first_cc")} /></${Row}>
     </${Group}>
@@ -846,7 +846,7 @@ function History({ setName, push }) {
     fetch(`../library/history/${encodeURIComponent(setName)}`, { cache: "no-store" }).then((r) => (r.ok ? r.json() : [])).then(setList).catch(() => setList([]));
   }, [setName]);
   return html`<${Detail} title="History">
-    <${Group} title="Earlier versions" foot="A version is kept each time the set is saved, five minutes apart at least (100 at most). Restoring one brings it back here: Save keeps it.">
+    <${Group} title="Earlier versions" foot="A version of everything (pedalboard, sounds, songs, setlists, favorites) is kept each time you save, five minutes apart at least (100 at most). Restoring one brings it back here: Save keeps it.">
       ${list === null ? html`<${Row} title="Loading…" />` : list.length ? list.map((v) => html`<${Row} title=${when(v.id)} link
         onTap=${() => push({ kind: "version", title: when(v.id), back: "History", version: v.id })} />`) : html`<${Row} title="No earlier version yet" />`}
     </${Group}>
@@ -948,7 +948,7 @@ const SCREENS = {
       const rid = sel.rig && doc.rigs[sel.rig] ? sel.rig : ids[0];
       const rig = rid && doc.rigs[rid];
       return html`
-        <${Group} title="Rigs" foot="A rig is a set of sounds on consecutive ES-8 patches. Touch a rig for its settings.">
+        <${Group} title="Rigs" foot="A rig is a group of sounds on consecutive ES-8 patches. Touch a rig for its settings.">
           ${ids.map((id) => {
             const r = doc.rigs[id];
             const [a, b] = rigRange(r);
@@ -1013,7 +1013,7 @@ const SCREENS = {
       const loops = Object.values(doc.pedalboard.devices || {}).flatMap((d) => (d.loops || []).map((l) => [l, d.name]));
       return html`<${Detail} title=${swName(key)}>
         <${Group}><${Row} title="Nothing" onTap=${() => put(null)}>${check(!sw.role)}</${Row}></${Group}>
-        <${Group} title="Move through the set">${COMPANION_ACTIONS.map(([a, label]) => html`
+        <${Group} title="Move through the setlist">${COMPANION_ACTIONS.map(([a, label]) => html`
           <${Row} title=${label} onTap=${() => put({ role: "companion", action: a })}>${check(sw.role === "companion" && sw.action === a)}</${Row}>`)}</${Group}>
         <${Group} title="Switch a MIDI parameter">${allParams(doc).map((x) => html`
           <${Row} title=${x.p.name} sub=${x.dev.name} onTap=${() => put({ role: "param", param: x.ref, mode: sw.mode || "toggle" })}>${check(sw.role === "param" && sw.param === x.ref)}</${Row}>`)}</${Group}>
@@ -1176,7 +1176,7 @@ function SetlistDetail({ doc, edit, push, goTo, select, sid, sl }) {
   });
   return html`<${Detail} title=${sl.name}>
     <${Group}><${NameRow} value=${sl.name} onChange=${(v) => edit((d) => { d.setlists[sid].name = v; })} /></${Group}>
-    <${Group} title="Songs, in the order of the gig" foot=${`${plural(rows.length, "song")} · ${plural(pc, "step")}. A song can come back later in the set.`}
+    <${Group} title="Songs, in the order of the gig" foot=${`${plural(rows.length, "song")} · ${plural(pc, "step")}. A song can come back later in the setlist.`}
       tools=${html`<button class="tool" style="color:var(--accent);min-height:36px;text-transform:none;letter-spacing:0;font-size:15px" onClick=${() => setEditSongs(!editSongs)}>${editSongs ? "Done" : "Edit"}</button>`}>
       <${EditableRows} rows=${rows} editing=${editSongs}
         onMove=${(a, b) => edit((d) => { d.setlists[sid].songs = moved(d.setlists[sid].songs, a, b); })}

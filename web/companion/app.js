@@ -202,7 +202,7 @@ function Banners({ snap, link, setScreen }) {
   if (link === "lost") out.push(html`<p class="banner bad">The stage host does not answer: reconnecting… The ES-8 keeps its sound.</p>`);
   const job = snap.job;
   if (job && !job.done && (job.kind === "send" || job.kind === "try")) {
-    out.push(html`<p class="banner edit"><span><b>Writing the ES-8</b> · ${job.kind === "try" ? "one sound" : "the set"}${job.total ? ` (${Math.round((100 * job.n) / job.total)} %)` : ""}.
+    out.push(html`<p class="banner edit"><span><b>Writing the ES-8</b> · ${job.kind === "try" ? "one sound" : "your changes"}${job.total ? ` (${Math.round((100 * job.n) / job.total)} %)` : ""}.
       The footswitches are paused until it is done.</span></p>`);
   } else if (snap.edit) {
     out.push(html`<div class="banner edit">
@@ -690,7 +690,7 @@ function KeysBox({ keys, setKeys, learning, setLearning, prefs, setPref }) {
 }
 
 function Menu(ctx) {
-  const { snap, show, setScreen, setLearning, prefs, setPref, awake, link } = ctx;
+  const { snap, show, setScreen, setLearning, prefs, setPref, awake, link, shell } = ctx;
   return html`
     <div class="app page">
       <header class="bar">
@@ -700,13 +700,13 @@ function Menu(ctx) {
       </header>
       <div class="page-body settings">
         <${Banners} snap=${snap} link=${link} />
-        <section class="box">
+        ${shell ? null : html`<section class="box">
           <h2 class="eyebrow">Show</h2>
           ${show ? html`<p class="box-title">${show.setlists.map((s) => s.name).join(" · ")}</p>
               <p class="muted small">Exported ${show.exported ? new Date(show.exported).toLocaleString([], { dateStyle: "medium", timeStyle: "short" }) : "?"}</p>`
             : html`<p>No show is played yet. Choose one below, or prepare a set in Edit and use “Send to the ES-8”.</p>`}
           <${Shows} snap=${snap} />
-        </section>
+        </section>`}
         <${ES8Box} snap=${snap} />
         <${KeysBox} ...${ctx} />
         <section class="box">
